@@ -239,6 +239,13 @@ SUB16 MACRO WK
      ST     WK+1(P1)
 	ENDM
 
+MOVEW MACRO DST,SRC
+	 LD    SRC(P1)
+	 ST    DST(P1)
+	 LD    SRC+1(P1)
+	 ST    DST+1(P1)
+	ENDM
+
 
 #endasm
 // スタート
@@ -248,7 +255,14 @@ SUB16 MACRO WK
 	 sp=a;
 	jsr(main);
 
-	ds(0x90);
+//  文字列サンプル
+msg1:
+	db(" * SC/MP-III Monitor *");
+	db(0x0d);
+	db(0x0a);
+	db(0);
+
+	ds(0x60);
 
 syscall_ret0:
 	a=sys_e;a<>e;
@@ -316,9 +330,6 @@ main()
 {
 	p3=#syscall_ret1;
 	p2=#msg1;puts();	
-	p2=0;mdump();
-	exit();
-#if 0
 	while(1) {	
 		a='>';putc();
 		p2=#inbuf;gets();
@@ -330,7 +341,6 @@ main()
 		p2=#inbuf;cmd();
 	}
 	exit();
-#endif
 }
 
 getc()
@@ -347,7 +357,6 @@ exit()
 }
 
 
-#if 0
 // P2 ポインタの１行バッファをcmd解釈.
 // ワーク：
 //    p4 = readhex()の戻り値.
@@ -359,12 +368,12 @@ cmd()
 		sp_skip();
 		readhex();
 		if(a!=0) {
-			ea=p4;
-			p5=ea;
+			movew(p5,p4);
 		}
-		ea=p5;p2=ea;mdump(); //メモリーダンプの実行.
+		ldptr(p2,p5);
+		mdump(); //メモリーダンプの実行.
 
-		ea=p5;ea+=0x100;p5=ea;
+//		ea=p5;ea+=0x100;p5=ea;
 	}	
 	if(e=='q') {
 		exit();
@@ -384,23 +393,23 @@ sp_skip()
 	}
 }
 
+//  p4 <<=4;
 p4mul16()
 {
-	push_ea;
-	ea=p4;
-	sl(ea);
-	sl(ea);
-	sl(ea);
-	sl(ea);
-	p4=ea;
-	pop_ea;
+	a=4;cnt1=a;
+	do {
+		ccl; a=p4;add p4(p1);p4=a; ld p4+1(p1);add p4+1(p1); st p4+1(p1)
+	} while(--cnt1);
 }
 
 // P2 ポインタから16進HEX読み. ==> p4に結果. 入力された桁数=Areg
 readhex()
 {
-	ea=0;
-	p4=ea;
+	// p4=0
+	a=0;
+	p4=a;
+	st p4+1(p1);
+	// r4=0
 	r4=a;
 	while(1) {
 		a=*p2++;e=a;
@@ -408,9 +417,7 @@ readhex()
 		if(e!=0xff) {
 			p4mul16();
 			a=e;
-			e<>a; a=0; e<>a; //e=0;
-			ea+=p4;
-			p4=ea;
+			a+=p4;p4=a;
 			a=r4;a+=1;r4=a;
 		}else{
 			a=r4;
@@ -439,7 +446,6 @@ readhex1()
 	a=0xff;
 }
 
-#endif
 
 // ==========================================
 // 出力関数
@@ -508,21 +514,23 @@ lc()
 
 
 //  メモリーダンプ
+//  アドレスは p2
 mdump()
 {
 //	push(p3);
-	a=64;cnt1=a;
+	a=16;cnt1=a;
 	do {
 		mdump_16();
 	} while(--cnt1);
+
+	stptr(p2,p5);
 //	pop(p3);
 }
 
 //  メモリーダンプ16byte
+//  アドレスは p2
 mdump_16()
 {
-//	push(p3);
-	//ea=p2;
 	stptr(p2,ea1)
 
 	a=ea2;a<>e;
@@ -540,7 +548,6 @@ mdump_16()
 	ascdump_16();
 
 	put_crlf();
-//	pop(p3);
 }
 
 //  メモリーダンプ8byte
@@ -653,12 +660,6 @@ puts()
 }
 
 
-//  文字列サンプル
-msg1:
-	db(" * SC/MP-III Monitor *");
-	db(0x0d);
-	db(0x0a);
-	db(0);
 
 inbuf:
 	ds(128);

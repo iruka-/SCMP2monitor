@@ -287,8 +287,8 @@ int f_LDI (int code,OPCODE *tab)
 }
 
 
-#define Wfence 0x1000
-//#define Wfence 0
+//#define Wfence 0x1000
+#define Wfence 0x40
 
 int f_ST (int code,OPCODE *tab)
 {
