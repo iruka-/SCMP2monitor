@@ -65,12 +65,14 @@ P3をPOP
 
 ; byte
 sp   = 0
-cnt1 = 1
-cnt2 = 2
-esav = 4
-asav = 5
-ea1  = 0x06
-ea2  = 0x07
+esav = 1
+asav = 2
+
+sys_a = 3
+sys_e = 4
+sys_hi = 5
+sys_lo = 6
+
 ; word
 r1   = 0x08
 r2   = 0x0a
@@ -81,6 +83,11 @@ p4   = 0x10
 p5   = 0x12
 p6   = 0x14
 p7   = 0x16
+; byte
+cnt1 = 0x20
+cnt2 = 0x21
+ea1  = 0x22
+ea2  = 0x23
 
 
 L FUNCTION VAL16, (VAL16 & 0xFF)
@@ -101,8 +108,16 @@ JSR	MACRO VAL			; Jump to Subroutine
 	 JS    P3,VAL
 	ENDM
 
+
+CALL MACRO VAL
+     XPPC  P3
+     DB    H(VAL-1)
+     DB    L(VAL-1)
+	ENDM
+
 RET MACRO
      XPPC  P3
+     DB    0
 	ENDM
 
 LEA	MACRO P,VAL			; Load Pointer
@@ -231,24 +246,75 @@ SUB16 MACRO WK
 	 p1=#0xff80;
 	 a=0xfe;
 	 sp=a;
-	 jmp(main);
+	jsr(main);
 
-getc()
-{
-     db(0x21);
-}
-putc()
-{
-     db(0x20);
-}
-exit()
-{
-     db(0);
-}
+	ds(0x90);
+
+syscall_ret0:
+	a=sys_e;a<>e;
+	a=sys_a;
+syscall_ret1:
+	xppc(p3);
+
+
+/* SYSCALL:
+   HIGH,LOWをP3に取得
+   P3をPUSH
+   JMP SYSCALL-1 ==> XPPC P3により HIGH,LOWに分岐
+
+   HIGH=0のときは
+　 P3をPOP
+   JMP SYSCALL-1 ==> XPPC P3により 呼び出し元に戻る
+
+   AとEが壊れるので、保存、復帰する.
+*/
+syscall:
+	sys_a=a;a<>e;
+	sys_e=a;
+	//HIGH,LOWを取得
+	a=*p3++;
+	a=*p3++;sys_hi=a;
+	a=*p3  ;sys_lo=a;
+
+	a=sys_hi;
+	if(a==0) goto sys_ret;
+
+    //P3をPUSH
+#asm
+	 DLD    SP(P1)     ; Ereg= --SP
+	 XAE
+	 XPAH	P3
+	 ST     -128(P1)
+
+	 DLD    SP(P1)     ; Ereg= --SP
+	 XAE
+	 XPAL	P3
+	 ST     -128(P1)
+#endasm
+	a=sys_hi;xpah(p3);
+	a=sys_lo;xpal(p3);
+	goto syscall_ret0;
+
+sys_ret:
+	//P3をPOP
+#asm
+	 LD     SP(P1)     ; Ereg= SP
+	 XAE
+	 LD     -128(P1)
+	 XPAL	P3
+	 ILD     SP(P1)     ; Ereg = ++SP
+	 XAE
+	 LD     -128(P1)
+	 XPAH	P3
+	 ILD     SP(P1)     ; ++SP
+#endasm
+	goto syscall_ret0;
+	
 
 // メイン
 main()
 {
+	p3=#syscall_ret1;
 	p2=#msg1;puts();	
 	p2=0;mdump();
 	exit();
@@ -265,6 +331,19 @@ main()
 	}
 	exit();
 #endif
+}
+
+getc()
+{
+     db(0x21);
+}
+putc()
+{
+     db(0x20);
+}
+exit()
+{
+     db(0);
 }
 
 
@@ -431,18 +510,18 @@ lc()
 //  メモリーダンプ
 mdump()
 {
-	push(p3);
+//	push(p3);
 	a=64;cnt1=a;
 	do {
 		mdump_16();
 	} while(--cnt1);
-	pop(p3);
+//	pop(p3);
 }
 
 //  メモリーダンプ16byte
 mdump_16()
 {
-	push(p3);
+//	push(p3);
 	//ea=p2;
 	stptr(p2,ea1)
 
@@ -461,20 +540,20 @@ mdump_16()
 	ascdump_16();
 
 	put_crlf();
-	pop(p3);
+//	pop(p3);
 }
 
 //  メモリーダンプ8byte
 mdump_8()
 {
-	push(p3);
+//	push(p3);
 	a=8;cnt2=a;
 	do {
 		a=*p2++;
 		prhex2();
 		pr_spc();
 	} while(--cnt2);
-	pop(p3);
+//	pop(p3);
 }
 
 //  EAレジスタを16進4桁表示
@@ -484,19 +563,19 @@ prhex4()
 	a<>e;
 	ea1=a;
 
-	push(p3);
+//	push(p3);
 	a=ea1;
 	prhex2();
 	a=ea2;
 	prhex2();
-	pop(p3);
+//	pop(p3);
 }
 
 //  Aレジスタを16進2桁表示
 prhex2()
 {
 	push_ea;
-	push(p3);
+//	push(p3);
 	e=a;
 	a>>=1;
 	a>>=1;
@@ -506,7 +585,7 @@ prhex2()
 
 	a=e;
 	prhex1();
-	pop(p3);
+//	pop(p3);
 	pop_ea;
 }
 
@@ -514,7 +593,7 @@ prhex2()
 prhex1()
 {
 	push_ea;
-	push(p3);
+//	push(p3);
 	a&=0x0f;
 	e=a;
 	if( a >= 10) {
@@ -524,30 +603,30 @@ prhex1()
 	}
 	a += 0x30;
 	putc();
-	pop(p3);
+//	pop(p3);
 	pop_ea;
 }
 //  空白文字を1つ出力
 pr_spc()
 {
-	push(p3);
+//	push(p3);
 	a=' ';putc();
-	pop(p3);
+//	pop(p3);
 }
 
 //  改行コード出力
 put_crlf()
 {
-	push(p3);
+//	push(p3);
 	a=0x0d;putc();
 	a=0x0a;putc();
-	pop(p3);
+//	pop(p3);
 }
 
 //  文字列入力( P2 ) 0x0a + ヌル終端.
 gets()
 {
-	push(p3);
+//	push(p3);
 	do {
 		getc();
 		*p2++=a;
@@ -557,20 +636,20 @@ gets()
 	}while(1);	
 
 	a=0; *p2++=a;
-	pop(p3);
+//	pop(p3);
 }
 
 
 //  文字列出力( P2 )ヌル終端.
 puts()
 {
-	push(p3);
+//	push(p3);
 	do {
 		a=*p2++;
 		if(a==0) break;
 		putc();
 	}while(1);	
-	pop(p3);
+//	pop(p3);
 }
 
 

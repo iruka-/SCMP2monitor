@@ -103,6 +103,9 @@ static  char *brklab[]= {"??","??","??","ca","ew","od","of","sw"};
 static int getln(void);
 #define	ZZ	printf("%s:%d: ZZ\n",__FILE__,__LINE__);
 
+#define USE_SYSCALL  1  // XPPC P3の後ろにインラインで呼び出しアドレスを置く.
+
+
 enum jnam {
 	JZ ,JNZ,
 	JP ,JM ,
@@ -861,7 +864,11 @@ int	expr(void)
 				noop("ret");
 				return(1);
 			} else {
+#if USE_SYSCALL    // XPPC P3の後ろにインラインで呼び出しアドレスを置く.
+				oneop("call",dst) ;
+#else
 				oneop("jsr",dst) ;
+#endif
 				return(1);
 			}
 		case SHR:
