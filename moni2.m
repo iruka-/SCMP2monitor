@@ -396,7 +396,7 @@ sp_skip()
 //  p4 <<=4;
 p4mul16()
 {
-	a=4;cnt1=a;
+	cnt1=4;
 	do {
 		ccl; a=p4;add p4(p1);p4=a; ld p4+1(p1);add p4+1(p1); st p4+1(p1)
 	} while(--cnt1);
@@ -465,7 +465,7 @@ ascdump_16()
 //  アスキーダンプ8byte
 ascdump_8()
 {
-	a=8;cnt2=a;
+	cnt2=8;
 	do {
 		a=*p2++;
 		ascdump1();
@@ -528,14 +528,12 @@ inc_p2()
 //  アドレスは p2
 mdump()
 {
-//	push(p3);
 	a=16;cnt1=a;
 	do {
 		mdump_16();
 	} while(--cnt1);
 
 	stptr(p2,p5);
-//	pop(p3);
 }
 
 //  メモリーダンプ16byte
@@ -553,7 +551,7 @@ mdump_16()
 	pr_spc();
 	mdump_8();
 
-// ASCII DUMP
+	// ASCII DUMP
 	stptr(p2,ea1);
 	sub16(ea1);
 	ascdump_16();
@@ -564,7 +562,7 @@ mdump_16()
 //  メモリーダンプ8byte
 mdump_8()
 {
-	a=8;cnt2=a;
+	cnt2=8;
 	do {
 		a=*p2;
 		prhex2();

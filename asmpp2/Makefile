@@ -71,6 +71,9 @@ test2:	$(TARGET)
 #
 clean:
 	-rm *.o
+	-rm *.asm
+	-rm *.lst
+	-rm *.p
 	-rm *~
 	-rm $(TARGET)
 #

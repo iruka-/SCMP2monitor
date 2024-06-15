@@ -80,8 +80,11 @@ asmpp:
 	make -C asmpp2
 #
 clean:
-	-rm *~
 	-rm *.o
+	-rm *.asm
+	-rm *.lst
+	-rm *.p
+	-rm *~
 	-rm $(TARGET)
 #
 #
