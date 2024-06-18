@@ -79,6 +79,9 @@ trace: moni2 scmp2
 asmpp:
 	make -C asmpp2
 #
+tdump: moni2 scmp2
+	./$(TARGET) -D
+#
 clean:
 	-rm *.o
 	-rm *.asm

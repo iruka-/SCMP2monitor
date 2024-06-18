@@ -163,6 +163,25 @@ void make_table(OPCODE *table,int code)
 }
 
 /** *********************************************************************************
+ *	命令コード code がマッチするOPCODEをopcode_init_tab[]から探す. 
+ ************************************************************************************
+ *	見つかったら、それを *table に丸っとコピーする.
+ *	見つからなかったら、UNDEFINED_OPCODEを *table に丸っとコピーする.
+ */
+void dump_table()
+{
+	OPCODE *s = opcode_init_tab;
+	while(s->mnemonic) {
+//		printf("%s %x %x\n",s->mnemonic,s->pattern,s->bitmask);
+		printf("	db(0x%02x);\n",s->pattern);
+		printf("	 db(0x%02x);\n",0xff ^ s->bitmask);
+		printf("	 db(\"%-04s\");\n",s->mnemonic);
+		s++;
+	}
+	exit(0);
+}
+
+/** *********************************************************************************
  *	opcode_init_tab[]の情報をもとに、早引き表の code_table[256] を構築する.
  ************************************************************************************
  */
@@ -277,7 +296,11 @@ int main(int argc,char **argv)
 	}
 	
 	init_table();
-
+	if(IsOpt('D')) {
+		dump_table();
+	}
+	
+	
 //	term_init();
 
 //	gr_init(SCREEN_W,SCREEN_H,32,0);

@@ -1,6 +1,6 @@
 /*
  ===========================================
- *	SC/MP-III Sample Program
+ *	SC/MP-II Sample Program
  ===========================================
 
  CALL / RET の実装
@@ -56,8 +56,16 @@ p7   = 0x16
 ; byte
 cnt1 = 0x20
 cnt2 = 0x21
-ea1  = 0x22
-ea2  = 0x23
+cnt3 = 0x22
+ea1  = 0x23
+ea2  = 0x24
+
+; オペコード.
+op1  = 0x25
+op2  = 0x26
+op3  = 0x27
+; オペサイズ.
+opsize = 0x28
 
 inbuf = 0xfe00
 
@@ -245,6 +253,9 @@ help_msg:
 	db(">D ADRS ... DUMP");
 	db(0x0d);
 	db(0x0a);
+	db(">L ADRS ... LIST");
+	db(0x0d);
+	db(0x0a);
 	db(">Q      ... QUIT");
 	db(0x0d);
 	db(0x0a);
@@ -341,6 +352,9 @@ main()
 	if(e=='q') {
 		exit();
 	}	
+	if(e=='l') {
+		disasm();
+	}else
 	if(e=='d') {
 		sp_skip();
 		readhex();
@@ -653,6 +667,9 @@ puts()
 	}while(1);	
 }
 
+#include "dis2.m"
+
+#include "mnem2.m"
 
 
 //
