@@ -1,0 +1,2856 @@
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 1 - 2024年06月19日 11時21分03秒
+
+
+    1/   0 :                            ;/*
+    2/   0 :                            ; ===========================================
+    3/   0 :                            ; *	SC/MP-II Sample Program
+    4/   0 :                            ; ===========================================
+    5/   0 :                            ;
+    6/   0 :                            ; CALL / RET の実装
+    7/   0 :                            ;
+    8/   0 :                            ; P3=SYSCALL
+    9/   0 :                            ;
+   10/   0 :                            ;   XPPC P3
+   11/   0 :                            ;   DB HIGH,LOW
+   12/   0 :                            ;
+   13/   0 :                            ;
+   14/   0 :                            ;SYSCALL-1:
+   15/   0 :                            ;   XPPC P3
+   16/   0 :                            ;SYSCALL:
+   17/   0 :                            ;   P3をPUSH
+   18/   0 :                            ;   HIGH,LOWをP3に取得
+   19/   0 :                            ;   JMP SYSCALL-1 ==> XPPC P3により HIGH,LOWに分岐
+   20/   0 :                            ;
+   21/   0 :                            ;   HIGH=0のときは
+   22/   0 :                            ;　 P3をPOP
+   23/   0 :                            ;   JMP SYSCALL-1 ==> XPPC P3により 呼び出し元に戻る
+   24/   0 :                            ;
+   25/   0 :                            ;   AとEが壊れるので、保存、復帰する.
+   26/   0 :                            ;
+   27/   0 :                            ; ===========================================
+   28/   0 :                            ; */
+   29/   0 :                            ;
+   30/   0 :                            ; プリアンブル
+   31/   0 :                            ; ------------
+   32/   0 :                            	  cpu sc/mp
+   33/   0 :                            	  org 0
+   34/   0 :                            
+   35/   0 :                            ; byte
+   36/   0 : =0x0                       sp   = 0
+   37/   0 : =0x1                       esav = 1
+   38/   0 : =0x2                       asav = 2
+   39/   0 :                            
+   40/   0 : =0x3                       sys_a = 3
+   41/   0 : =0x4                       sys_e = 4
+   42/   0 : =0x5                       sys_hi = 5
+   43/   0 : =0x6                       sys_lo = 6
+   44/   0 :                            
+   45/   0 :                            ; word
+   46/   0 : =0x8                       r1   = 0x08
+   47/   0 : =0xA                       r2   = 0x0a
+   48/   0 : =0xC                       r3   = 0x0c
+   49/   0 : =0xE                       r4   = 0x0e
+   50/   0 :                            ; word
+   51/   0 : =0x10                      p4   = 0x10
+   52/   0 : =0x12                      p5   = 0x12
+   53/   0 : =0x14                      p6   = 0x14
+   54/   0 : =0x16                      p7   = 0x16
+   55/   0 :                            ; byte
+   56/   0 : =0x20                      cnt1 = 0x20
+   57/   0 : =0x21                      cnt2 = 0x21
+   58/   0 : =0x22                      cnt3 = 0x22
+   59/   0 : =0x23                      ea1  = 0x23
+   60/   0 : =0x24                      ea2  = 0x24
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 2 - 2024年06月19日 11時21分03秒
+
+
+   61/   0 :                            
+   62/   0 :                            ; オペコード.
+   63/   0 : =0x25                      op1  = 0x25
+   64/   0 : =0x26                      op2  = 0x26
+   65/   0 : =0x27                      op3  = 0x27
+   66/   0 : =0x28                      op1mask = 0x28
+   67/   0 :                            ; オペサイズ.
+   68/   0 : =0x29                      opsize = 0x29
+   69/   0 : =0x2A                      pcl    = 0x2a
+   70/   0 : =0x2B                      pch    = 0x2b
+   71/   0 :                            
+   72/   0 : =0xFE00                    inbuf = 0xfe00
+   73/   0 :                            
+   74/   0 :                            ; 下位8bit、上位8bit を得る関数マクロ .
+   75/   0 :                            L   FUNCTION VAL16, (VAL16 & 0xFF)
+   76/   0 :                            H   FUNCTION VAL16, ((VAL16 >> 8) & 0xFF)
+   77/   0 :                            
+   78/   0 :                            ; Macros.
+   79/   0 :                            JS	MACRO P,VAL			; Jump to Subroutine
+   80/   0 :                            	 XPAH	P
+   81/   0 :                            	 LDI	H(VAL-1)
+   82/   0 :                            	 XPAH	P
+   83/   0 :                            	 XPAL	P
+   84/   0 :                            	 LDI	L(VAL-1)
+   85/   0 :                            	 XPAL	P
+   86/   0 :                            	 XPPC	P
+   87/   0 :                            	ENDM
+   88/   0 :                            
+   89/   0 :                            JSR	MACRO VAL			; Jump to Subroutine
+   90/   0 :                            	 JS    P3,VAL
+   91/   0 :                            	ENDM
+   92/   0 :                            
+   93/   0 :                            
+   94/   0 :                            CALL MACRO VAL
+   95/   0 :                                 XPPC  P3
+   96/   0 :                                 DB    H(VAL-1)
+   97/   0 :                                 DB    L(VAL-1)
+   98/   0 :                            	ENDM
+   99/   0 :                            
+  100/   0 :                            RET MACRO
+  101/   0 :                                 XPPC  P3
+  102/   0 :                                 DB    0
+  103/   0 :                            	ENDM
+  104/   0 :                            
+  105/   0 :                            LEA	MACRO P,VAL			; Load Pointer
+  106/   0 :                            	 XPAL	P
+  107/   0 :                            	 LDI	L(VAL)
+  108/   0 :                            	 XPAL	P
+  109/   0 :                            	 XPAH	P
+  110/   0 :                            	 LDI	H(VAL)
+  111/   0 :                            	 XPAH	P
+  112/   0 :                            	ENDM
+  113/   0 :                            
+  114/   0 :                            LDPTR MACRO P,VAL			; Load Pointer
+  115/   0 :                            	 XPAL	P
+  116/   0 :                            	 LD		VAL(P1)
+  117/   0 :                            	 XPAL	P
+  118/   0 :                            	 XPAH	P
+  119/   0 :                            	 LD		VAL+1(P1)
+  120/   0 :                            	 XPAH	P
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 3 - 2024年06月19日 11時21分03秒
+
+
+  121/   0 :                            	ENDM
+  122/   0 :                            
+  123/   0 :                            STPTR MACRO P,VAL			; Load Pointer
+  124/   0 :                            	 XPAL	P
+  125/   0 :                            	 ST		VAL(P1)
+  126/   0 :                            	 XPAL	P
+  127/   0 :                            	 XPAH	P
+  128/   0 :                            	 ST		VAL+1(P1)
+  129/   0 :                            	 XPAH	P
+  130/   0 :                            	ENDM
+  131/   0 :                            
+  132/   0 :                            PUSH MACRO P
+  133/   0 :                            	 XAE
+  134/   0 :                            	 DLD    SP(P1)     ; Ereg= --SP
+  135/   0 :                            	 XAE
+  136/   0 :                            	 XPAH	P
+  137/   0 :                            	 ST     -128(P1)
+  138/   0 :                            	 XPAH	P
+  139/   0 :                            	 XAE
+  140/   0 :                            	 DLD    SP(P1)     ; Ereg= --SP
+  141/   0 :                            	 XAE
+  142/   0 :                            	 XPAL	P
+  143/   0 :                            	 ST     -128(P1)
+  144/   0 :                            	 XPAL	P
+  145/   0 :                            	ENDM
+  146/   0 :                            
+  147/   0 :                            POP MACRO P
+  148/   0 :                            	 XAE
+  149/   0 :                            	 LD     SP(P1)     ; Ereg= SP
+  150/   0 :                            	 XAE
+  151/   0 :                            	 XPAL	P
+  152/   0 :                            	 LD     -128(P1)
+  153/   0 :                            	 XPAL	P
+  154/   0 :                            	 XAE
+  155/   0 :                            	 ILD     SP(P1)     ; Ereg = ++SP
+  156/   0 :                            	 XAE
+  157/   0 :                            	 XPAH	P
+  158/   0 :                            	 LD     -128(P1)
+  159/   0 :                            	 XPAH	P
+  160/   0 :                            	 XAE
+  161/   0 :                            	 ILD     SP(P1)     ; ++SP
+  162/   0 :                            	 XAE
+  163/   0 :                            	ENDM
+  164/   0 :                            
+  165/   0 :                            PUSHA MACRO
+  166/   0 :                            	 XAE
+  167/   0 :                            	 DLD    SP(P1)     ; Ereg= --SP
+  168/   0 :                            	 XAE
+  169/   0 :                            	 ST     -128(P1)
+  170/   0 :                            	ENDM
+  171/   0 :                            
+  172/   0 :                            POPA MACRO
+  173/   0 :                            	 LD     SP(P1)     ; Ereg= SP
+  174/   0 :                            	 XAE
+  175/   0 :                            	 LD     -128(P1)
+  176/   0 :                            	 XAE
+  177/   0 :                            	 ILD    SP(P1)     ; ++SP
+  178/   0 :                            	 XAE
+  179/   0 :                            	ENDM
+  180/   0 :                            
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 4 - 2024年06月19日 11時21分03秒
+
+
+  181/   0 :                            PUSH_EA MACRO
+  182/   0 :                            	 ST     ASAV(P1)
+  183/   0 :                            	 XAE
+  184/   0 :                            	 ST     ESAV(P1)
+  185/   0 :                            	 DLD    SP(P1)     ; Ereg= --SP
+  186/   0 :                            	 XAE
+  187/   0 :                            	 LD     ESAV(P1)
+  188/   0 :                            	 ST     -128(P1)   ; PUSH E
+  189/   0 :                            	 DLD    SP(P1)     ; Ereg= --SP
+  190/   0 :                            	 XAE
+  191/   0 :                            	 LD     ASAV(P1)
+  192/   0 :                            	 ST     -128(P1)   ; PUSH A
+  193/   0 :                            	 XAE
+  194/   0 :                            	 LD     ESAV(P1)
+  195/   0 :                            	 XAE
+  196/   0 :                            	ENDM
+  197/   0 :                            
+  198/   0 :                            POP_EA MACRO
+  199/   0 :                            	 LD     SP(P1)     ; Ereg= SP
+  200/   0 :                            	 XAE
+  201/   0 :                            	 LD     -128(P1)
+  202/   0 :                            	 ST     ASAV(P1)
+  203/   0 :                            	 XAE
+  204/   0 :                            	 ILD    SP(P1)     ; Ereg= ++SP
+  205/   0 :                            	 XAE
+  206/   0 :                            	 LD     -128(P1)
+  207/   0 :                            	 ST     ESAV(P1)
+  208/   0 :                            	 ILD    SP(P1)     ; Ereg= ++SP
+  209/   0 :                            	 LD     ESAV(P1)
+  210/   0 :                            	 XAE
+  211/   0 :                            	 LD     ASAV(P1)
+  212/   0 :                            	ENDM
+  213/   0 :                            
+  214/   0 :                            SUB16 MACRO WK
+  215/   0 :                                 SCL
+  216/   0 :                                 LD     WK(P1)
+  217/   0 :                                 CAI    16
+  218/   0 :                                 ST     WK(P1)
+  219/   0 :                                 LD     WK+1(P1)
+  220/   0 :                                 CAI    0
+  221/   0 :                                 ST     WK+1(P1)
+  222/   0 :                            	ENDM
+  223/   0 :                            
+  224/   0 :                            ADD16 MACRO WK
+  225/   0 :                                 CCL
+  226/   0 :                                 LD     WK(P1)
+  227/   0 :                                 ADI    16
+  228/   0 :                                 ST     WK(P1)
+  229/   0 :                                 LD     WK+1(P1)
+  230/   0 :                                 ADI    0
+  231/   0 :                                 ST     WK+1(P1)
+  232/   0 :                            	ENDM
+  233/   0 :                            
+  234/   0 :                            MOVEW MACRO DST,SRC
+  235/   0 :                            	 LD    SRC(P1)
+  236/   0 :                            	 ST    DST(P1)
+  237/   0 :                            	 LD    SRC+1(P1)
+  238/   0 :                            	 ST    DST+1(P1)
+  239/   0 :                            	ENDM
+  240/   0 :                            
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 5 - 2024年06月19日 11時21分03秒
+
+
+  241/   0 :                            
+  242/   0 :                            ;// スタート
+  243/   0 :                            ;	 nop;
+  244/   0 : 08                         	nop
+  245/   1 :                            ;	 p1=#0xff80;
+  246/   1 : (MACRO)                    	lea	p1,0xff80
+  246/   1 : 31                                  XPAL   P1
+  246/   2 : C4 80                               LDI    L(0XFF80)
+  246/   4 : 31                                  XPAL   P1
+  246/   5 : 35                                  XPAH   P1
+  246/   6 : C4 FF                               LDI    H(0XFF80)
+  246/   8 : 35                                  XPAH   P1
+  247/   9 :                            ;	 a=0xfe;
+  248/   9 : C4 FE                      	ldi	0xfe
+  249/   B :                            ;	 sp=a;
+  250/   B : C9 00                      	st	sp(P1)
+  251/   D :                            ;	jsr(main);
+  252/   D : (MACRO)                    	jsr	main
+  252/   D :  (MACRO-2)                          JS    P3,MAIN
+  252/   D : 37                                  XPAH   P3
+  252/   E : C4 00                               LDI    H(MAIN-1)
+  252/  10 : 37                                  XPAH   P3
+  252/  11 : 33                                  XPAL   P3
+  252/  12 : C4 AF                               LDI    L(MAIN-1)
+  252/  14 : 33                                  XPAL   P3
+  252/  15 : 3F                                  XPPC   P3
+  253/  16 :                            ;
+  254/  16 :                            ;//  文字列サンプル
+  255/  16 :                            ;help_msg:
+  256/  16 :                            help_msg:
+  257/  16 :                            ;	db(" * COMMAND *");
+  258/  16 : 20 2A 20 43 4F 4D 4D 41 4E 	db	" * COMMAND *"
+        1F : 44 20 2A                  
+  259/  22 :                            ;	db(0x0d);
+  260/  22 : 0D                         	db	0x0d
+  261/  23 :                            ;	db(0x0a);
+  262/  23 : 0A                         	db	0x0a
+  263/  24 :                            ;	db(">D ADRS ... DUMP");
+  264/  24 : 3E 44 20 41 44 52 53 20 2E 	db	">D ADRS ... DUMP"
+        2D : 2E 2E 20 44 55 4D 50      
+  265/  34 :                            ;	db(0x0d);
+  266/  34 : 0D                         	db	0x0d
+  267/  35 :                            ;	db(0x0a);
+  268/  35 : 0A                         	db	0x0a
+  269/  36 :                            ;	db(">L ADRS ... LIST");
+  270/  36 : 3E 4C 20 41 44 52 53 20 2E 	db	">L ADRS ... LIST"
+        3F : 2E 2E 20 4C 49 53 54      
+  271/  46 :                            ;	db(0x0d);
+  272/  46 : 0D                         	db	0x0d
+  273/  47 :                            ;	db(0x0a);
+  274/  47 : 0A                         	db	0x0a
+  275/  48 :                            ;	db(">Q      ... QUIT");
+  276/  48 : 3E 51 20 20 20 20 20 20 2E 	db	">Q      ... QUIT"
+        51 : 2E 2E 20 51 55 49 54      
+  277/  58 :                            ;	db(0x0d);
+  278/  58 : 0D                         	db	0x0d
+  279/  59 :                            ;	db(0x0a);
+  280/  59 : 0A                         	db	0x0a
+  281/  5A :                            ;	
+  282/  5A :                            ;msg1:
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 6 - 2024年06月19日 11時21分03秒
+
+
+  283/  5A :                            msg1:
+  284/  5A :                            ;	db(" * SC/MP-III Monitor *");
+  285/  5A : 20 2A 20 53 43 2F 4D 50 2D 	db	" * SC/MP-III Monitor *"
+        63 : 49 49 49 20 4D 6F 6E 69 74
+        6C : 6F 72 20 2A               
+  286/  70 :                            ;	db(0x0d);
+  287/  70 : 0D                         	db	0x0d
+  288/  71 :                            ;	db(0x0a);
+  289/  71 : 0A                         	db	0x0a
+  290/  72 :                            ;	db(0);
+  291/  72 : 00                         	db	0
+  292/  73 :                            ;
+  293/  73 :                            ;
+  294/  73 :                            ;syscall_ret0:
+  295/  73 :                            syscall_ret0:
+  296/  73 :                            ;	a=sys_e;a<>e;
+  297/  73 : C1 04                      	ld	sys_e(P1)
+  298/  75 : 01                         	xae
+  299/  76 :                            ;	a=sys_a;
+  300/  76 : C1 03                      	ld	sys_a(P1)
+  301/  78 :                            ;syscall_ret1:
+  302/  78 :                            syscall_ret1:
+  303/  78 :                            ;	xppc(p3);
+  304/  78 : 3F                         	xppc	p3
+  305/  79 :                            ;
+  306/  79 :                            ;
+  307/  79 :                            ;/* SYSCALL:
+  308/  79 :                            ;   HIGH,LOWをP3に取得
+  309/  79 :                            ;   P3をPUSH
+  310/  79 :                            ;   JMP SYSCALL-1 ==> XPPC P3により HIGH,LOWに分岐
+  311/  79 :                            ;
+  312/  79 :                            ;   HIGH=0のときは
+  313/  79 :                            ;　 P3をPOP
+  314/  79 :                            ;   JMP SYSCALL-1 ==> XPPC P3により 呼び出し元に戻る
+  315/  79 :                            ;
+  316/  79 :                            ;   AとEが壊れるので、保存、復帰する.
+  317/  79 :                            ;*/
+  318/  79 :                            ;syscall:
+  319/  79 :                            syscall:
+  320/  79 :                            ;	sys_a=a;a<>e;
+  321/  79 : C9 03                      	st	sys_a(P1)
+  322/  7B : 01                         	xae
+  323/  7C :                            ;	sys_e=a;
+  324/  7C : C9 04                      	st	sys_e(P1)
+  325/  7E :                            ;	//HIGH,LOWを取得
+  326/  7E :                            ;	a=*p3++;
+  327/  7E : C7 01                      	ld	@1(p3)
+  328/  80 :                            ;	a=*p3++;sys_hi=a;
+  329/  80 : C7 01                      	ld	@1(p3)
+  330/  82 : C9 05                      	st	sys_hi(P1)
+  331/  84 :                            ;	a=*p3  ;sys_lo=a;
+  332/  84 : C3 00                      	ld	0(p3)
+  333/  86 : C9 06                      	st	sys_lo(P1)
+  334/  88 :                            ;
+  335/  88 :                            ;	a=sys_hi;
+  336/  88 : C1 05                      	ld	sys_hi(P1)
+  337/  8A :                            ;	if(a==0) goto sys_ret;
+  338/  8A : 98 14                      	jz	sys_ret
+  339/  8C :                            ;
+  340/  8C :                            ;    //P3をPUSH
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 7 - 2024年06月19日 11時21分03秒
+
+
+  341/  8C : B9 00                      	 DLD    SP(P1)     ; Ereg= --SP
+  342/  8E : 01                         	 XAE
+  343/  8F : 37                         	 XPAH	P3
+> > > moni2.asm(344):10: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  344/  90 : C9 80                      	 ST     -128(P1)
+  345/  92 :                            
+  346/  92 : B9 00                      	 DLD    SP(P1)     ; Ereg= --SP
+  347/  94 : 01                         	 XAE
+  348/  95 : 33                         	 XPAL	P3
+> > > moni2.asm(349):10: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  349/  96 : C9 80                      	 ST     -128(P1)
+  350/  98 :                            ;	a=sys_hi;xpah(p3);
+  351/  98 : C1 05                      	ld	sys_hi(P1)
+  352/  9A : 37                         	xpah	p3
+  353/  9B :                            ;	a=sys_lo;xpal(p3);
+  354/  9B : C1 06                      	ld	sys_lo(P1)
+  355/  9D : 33                         	xpal	p3
+  356/  9E :                            ;	goto syscall_ret0;
+  357/  9E : 90 D3                      	jmp	syscall_ret0
+  358/  A0 :                            ;
+  359/  A0 :                            ;sys_ret:
+  360/  A0 :                            sys_ret:
+  361/  A0 :                            ;	//P3をPOP
+  362/  A0 : C1 00                      	 LD     SP(P1)     ; Ereg= SP
+  363/  A2 : 01                         	 XAE
+> > > moni2.asm(364):10: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  364/  A3 : C1 80                      	 LD     -128(P1)
+  365/  A5 : 33                         	 XPAL	P3
+  366/  A6 : A9 00                      	 ILD     SP(P1)     ; Ereg = ++SP
+  367/  A8 : 01                         	 XAE
+> > > moni2.asm(368):10: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  368/  A9 : C1 80                      	 LD     -128(P1)
+  369/  AB : 37                         	 XPAH	P3
+  370/  AC : A9 00                      	 ILD     SP(P1)     ; ++SP
+  371/  AE :                            ;	goto syscall_ret0;
+  372/  AE : 90 C3                      	jmp	syscall_ret0
+  373/  B0 :                            ;	
+  374/  B0 :                            ;
+  375/  B0 :                            ;// メイン
+  376/  B0 :                            ;main()
+  377/  B0 :                            ;{
+  378/  B0 :                            main:
+  379/  B0 :                            ;	p3=#syscall_ret1;
+  380/  B0 : (MACRO)                    	lea	p3,syscall_ret1
+  380/  B0 : 33                                  XPAL   P3
+  380/  B1 : C4 78                               LDI    L(SYSCALL_RET1)
+  380/  B3 : 33                                  XPAL   P3
+  380/  B4 : 37                                  XPAH   P3
+  380/  B5 : C4 00                               LDI    H(SYSCALL_RET1)
+  380/  B7 : 37                                  XPAH   P3
+  381/  B8 :                            ;	p2=#msg1;puts();	
+  382/  B8 : (MACRO)                    	lea	p2,msg1
+  382/  B8 : 32                                  XPAL   P2
+  382/  B9 : C4 5A                               LDI    L(MSG1)
+  382/  BB : 32                                  XPAL   P2
+  382/  BC : 36                                  XPAH   P2
+  382/  BD : C4 00                               LDI    H(MSG1)
+  382/  BF : 36                                  XPAH   P2
+  383/  C0 : (MACRO)                    	call	puts
+  383/  C0 : 3F                              XPPC  P3
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 8 - 2024年06月19日 11時21分03秒
+
+
+  383/  C1 : 03                              DB    H(PUTS-1)
+  383/  C2 : 94                              DB    L(PUTS-1)
+  384/  C3 :                            ;	while(1) {	
+  385/  C3 :                            __wh000:
+  386/  C3 :                            ;		a='>';putc();
+  387/  C3 : C4 3E                      	ldi	'>'
+  388/  C5 : (MACRO)                    	call	putc
+  388/  C5 : 3F                              XPPC  P3
+  388/  C6 : 01                              DB    H(PUTC-1)
+  388/  C7 : 40                              DB    L(PUTC-1)
+  389/  C8 :                            ;		p2=#inbuf;gets();
+  390/  C8 : (MACRO)                    	lea	p2,inbuf
+  390/  C8 : 32                                  XPAL   P2
+  390/  C9 : C4 00                               LDI    L(INBUF)
+  390/  CB : 32                                  XPAL   P2
+  390/  CC : 36                                  XPAH   P2
+  390/  CD : C4 FE                               LDI    H(INBUF)
+  390/  CF : 36                                  XPAH   P2
+  391/  D0 : (MACRO)                    	call	gets
+  391/  D0 : 3F                              XPPC  P3
+  391/  D1 : 03                              DB    H(GETS-1)
+  391/  D2 : 79                              DB    L(GETS-1)
+  392/  D3 :                            ;
+  393/  D3 :                            ;		// ECHO BACK.
+  394/  D3 :                            ;		p2=#inbuf;puts();
+  395/  D3 : (MACRO)                    	lea	p2,inbuf
+  395/  D3 : 32                                  XPAL   P2
+  395/  D4 : C4 00                               LDI    L(INBUF)
+  395/  D6 : 32                                  XPAL   P2
+  395/  D7 : 36                                  XPAH   P2
+  395/  D8 : C4 FE                               LDI    H(INBUF)
+  395/  DA : 36                                  XPAH   P2
+  396/  DB : (MACRO)                    	call	puts
+  396/  DB : 3F                              XPPC  P3
+  396/  DC : 03                              DB    H(PUTS-1)
+  396/  DD : 94                              DB    L(PUTS-1)
+  397/  DE :                            ;
+  398/  DE :                            ;		//		
+  399/  DE :                            ;		p2=#inbuf; //cmd();
+  400/  DE : (MACRO)                    	lea	p2,inbuf
+  400/  DE : 32                                  XPAL   P2
+  400/  DF : C4 00                               LDI    L(INBUF)
+  400/  E1 : 32                                  XPAL   P2
+  400/  E2 : 36                                  XPAH   P2
+  400/  E3 : C4 FE                               LDI    H(INBUF)
+  400/  E5 : 36                                  XPAH   P2
+  401/  E6 :                            ;// P2 ポインタの１行バッファをcmd解釈.
+  402/  E6 :                            ;// ワーク：
+  403/  E6 :                            ;//    p4 = readhex()の戻り値.
+  404/  E6 :                            ;//    p5 = 注目メモリーアドレスを覚えておく.
+  405/  E6 :                            ;//cmd()
+  406/  E6 :                            ;//{
+  407/  E6 :                            ;	a=*p2++;lc();e=a;
+  408/  E6 : C6 01                      	ld	@1(p2)
+  409/  E8 : (MACRO)                    	call	lc
+  409/  E8 : 3F                              XPPC  P3
+  409/  E9 : 02                              DB    H(LC-1)
+  409/  EA : 4B                              DB    L(LC-1)
+  410/  EB : 01                         	xae
+  411/  EC : 40                         	lde
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 9 - 2024年06月19日 11時21分03秒
+
+
+  412/  ED :                            ;	if(e=='q') {
+  413/  ED : 40                         	lde
+  414/  EE : 03                         	scl
+  415/  EF : FC 71                      	cai	'q'
+  416/  F1 : 9C 03                      	jnz	__el001
+  417/  F3 :                            ;		exit();
+  418/  F3 : (MACRO)                    	call	exit
+  418/  F3 : 3F                              XPPC  P3
+  418/  F4 : 01                              DB    H(EXIT-1)
+  418/  F5 : 43                              DB    L(EXIT-1)
+  419/  F6 :                            ;	}	
+  420/  F6 :                            ;	if(e=='l') {
+  421/  F6 :                            __el001:
+  422/  F6 : 40                         	lde
+  423/  F7 : 03                         	scl
+  424/  F8 : FC 6C                      	cai	'l'
+  425/  FA : 9C 05                      	jnz	__el002
+  426/  FC :                            ;		disasm();
+  427/  FC : (MACRO)                    	call	disasm
+  427/  FC : 3F                              XPPC  P3
+  427/  FD : 03                              DB    H(DISASM-1)
+  427/  FE : 9F                              DB    L(DISASM-1)
+  428/  FF :                            ;	}else
+  429/  FF : 90 36                      	jmp	__fi002
+  430/ 101 :                            __el002:
+  431/ 101 :                            ;	if(e=='d') {
+  432/ 101 : 40                         	lde
+  433/ 102 : 03                         	scl
+  434/ 103 : FC 64                      	cai	'd'
+  435/ 105 : 9C 1D                      	jnz	__el003
+  436/ 107 :                            ;		sp_skip();
+  437/ 107 : (MACRO)                    	call	sp_skip
+  437/ 107 : 3F                              XPPC  P3
+  437/ 108 : 01                              DB    H(SP_SKIP-1)
+  437/ 109 : 46                              DB    L(SP_SKIP-1)
+  438/ 10A :                            ;		readhex();
+  439/ 10A : (MACRO)                    	call	readhex
+  439/ 10A : 3F                              XPPC  P3
+  439/ 10B : 01                              DB    H(READHEX-1)
+  439/ 10C : 6C                              DB    L(READHEX-1)
+  440/ 10D :                            ;		if(a!=0) {
+  441/ 10D : 98 08                      	jz	__el004
+  442/ 10F :                            ;			movew(p5,p4);
+  443/ 10F : (MACRO)                    	movew	p5,p4
+  443/ 10F : C1 10                               LD    P4(P1)
+  443/ 111 : C9 12                               ST    P5(P1)
+  443/ 113 : C1 11                               LD    P4+1(P1)
+  443/ 115 : C9 13                               ST    P5+1(P1)
+  444/ 117 :                            ;		}
+  445/ 117 :                            ;		ldptr(p2,p5);
+  446/ 117 :                            __el004:
+  447/ 117 : (MACRO)                    	ldptr	p2,p5
+  447/ 117 : 32                                  XPAL   P2
+  447/ 118 : C1 12                               LD             P5(P1)
+  447/ 11A : 32                                  XPAL   P2
+  447/ 11B : 36                                  XPAH   P2
+  447/ 11C : C1 13                               LD             P5+1(P1)
+  447/ 11E : 36                                  XPAH   P2
+  448/ 11F :                            ;		mdump(); //メモリーダンプの実行.
+  449/ 11F : (MACRO)                    	call	mdump
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 10 - 2024年06月19日 11時21分03秒
+
+
+  449/ 11F : 3F                              XPPC  P3
+  449/ 120 : 02                              DB    H(MDUMP-1)
+  449/ 121 : 6F                              DB    L(MDUMP-1)
+  450/ 122 :                            ;	}else if(e==0x0d) {
+  451/ 122 : 90 13                      	jmp	__fi003
+  452/ 124 :                            __el003:
+  453/ 124 : 40                         	lde
+  454/ 125 : 03                         	scl
+  455/ 126 : FC 0D                      	cai	0x0d
+  456/ 128 : 9C 02                      	jnz	__el005
+  457/ 12A :                            ;		
+  458/ 12A :                            ;	}else{
+  459/ 12A : 90 0B                      	jmp	__fi005
+  460/ 12C :                            __el005:
+  461/ 12C :                            ;		p2=#help_msg;puts();
+  462/ 12C : (MACRO)                    	lea	p2,help_msg
+  462/ 12C : 32                                  XPAL   P2
+  462/ 12D : C4 16                               LDI    L(HELP_MSG)
+  462/ 12F : 32                                  XPAL   P2
+  462/ 130 : 36                                  XPAH   P2
+  462/ 131 : C4 00                               LDI    H(HELP_MSG)
+  462/ 133 : 36                                  XPAH   P2
+  463/ 134 : (MACRO)                    	call	puts
+  463/ 134 : 3F                              XPPC  P3
+  463/ 135 : 03                              DB    H(PUTS-1)
+  463/ 136 : 94                              DB    L(PUTS-1)
+  464/ 137 :                            ;	}
+  465/ 137 :                            __fi005:
+  466/ 137 :                            ;
+  467/ 137 :                            ;//}
+  468/ 137 :                            ;
+  469/ 137 :                            ;	}
+  470/ 137 :                            __fi003:
+  471/ 137 :                            __fi002:
+  472/ 137 : 90 8A                      	jmp	__wh000
+  473/ 139 :                            __ew000:
+  474/ 139 :                            ;	exit();
+  475/ 139 : (MACRO)                    	call	exit
+  475/ 139 : 3F                              XPPC  P3
+  475/ 13A : 01                              DB    H(EXIT-1)
+  475/ 13B : 43                              DB    L(EXIT-1)
+  476/ 13C :                            ;}
+  477/ 13C : (MACRO)                    	ret
+  477/ 13C : 3F                              XPPC  P3
+  477/ 13D : 00                              DB    0
+  478/ 13E :                            ;
+  479/ 13E :                            ;//  Fence:::
+  480/ 13E :                            ;//  ================================================
+  481/ 13E :                            ;//  ここのアドレスが 0x100 以降に配置される必要がある
+  482/ 13E :                            ;//  CALL と RET を上位アドレスが 00 かどうかで判別するため.
+  483/ 13E :                            ;//
+  484/ 13E :                            ;getc()
+  485/ 13E :                            ;{
+  486/ 13E :                            getc:
+  487/ 13E :                            ;     db(0x21);
+  488/ 13E : 21                         	db	0x21
+  489/ 13F :                            ;}
+  490/ 13F : (MACRO)                    	ret
+  490/ 13F : 3F                              XPPC  P3
+  490/ 140 : 00                              DB    0
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 11 - 2024年06月19日 11時21分03秒
+
+
+  491/ 141 :                            ;putc()
+  492/ 141 :                            ;{
+  493/ 141 :                            putc:
+  494/ 141 :                            ;     db(0x20);
+  495/ 141 : 20                         	db	0x20
+  496/ 142 :                            ;}
+  497/ 142 : (MACRO)                    	ret
+  497/ 142 : 3F                              XPPC  P3
+  497/ 143 : 00                              DB    0
+  498/ 144 :                            ;exit()
+  499/ 144 :                            ;{
+  500/ 144 :                            exit:
+  501/ 144 :                            ;     db(0);
+  502/ 144 : 00                         	db	0
+  503/ 145 :                            ;}
+  504/ 145 : (MACRO)                    	ret
+  504/ 145 : 3F                              XPPC  P3
+  504/ 146 : 00                              DB    0
+  505/ 147 :                            ;
+  506/ 147 :                            ;
+  507/ 147 :                            ;// ==========================================
+  508/ 147 :                            ;// 入力関数
+  509/ 147 :                            ;
+  510/ 147 :                            ;// P2 ポインタの空白文字飛ばし.
+  511/ 147 :                            ;sp_skip()
+  512/ 147 :                            ;{
+  513/ 147 :                            sp_skip:
+  514/ 147 :                            ;	a=*p2;
+  515/ 147 : C2 00                      	ld	0(p2)
+  516/ 149 :                            ;	while(a==' ') {
+  517/ 149 :                            __wh006:
+  518/ 149 : 03                         	scl
+  519/ 14A : FC 20                      	cai	' '
+  520/ 14C : 9C 06                      	jnz	__ew006
+  521/ 14E :                            ;		a=*p2++;  // p2++ だけしたい.
+  522/ 14E : C6 01                      	ld	@1(p2)
+  523/ 150 :                            ;		a=*p2;
+  524/ 150 : C2 00                      	ld	0(p2)
+  525/ 152 :                            ;	}
+  526/ 152 : 90 F5                      	jmp	__wh006
+  527/ 154 :                            __ew006:
+  528/ 154 :                            ;}
+  529/ 154 : (MACRO)                    	ret
+  529/ 154 : 3F                              XPPC  P3
+  529/ 155 : 00                              DB    0
+  530/ 156 :                            ;
+  531/ 156 :                            ;//  p4 <<=4;
+  532/ 156 :                            ;p4mul16()
+  533/ 156 :                            ;{
+  534/ 156 :                            p4mul16:
+  535/ 156 :                            ;	cnt1=4;
+  536/ 156 : C4 04                      	ldi	4
+  537/ 158 : C9 20                      	st	cnt1(P1)
+  538/ 15A :                            ;	do {
+  539/ 15A :                            __do007:
+  540/ 15A :                            ;		ccl; a=p4;add p4(p1);p4=a; ld p4+1(p1);add p4+1(p1); st p4+1(p1)
+  541/ 15A : 02                         	ccl
+  542/ 15B : C1 10                      	ld	p4(P1)
+  543/ 15D : F1 10                      	add	p4(p1)
+  544/ 15F : C9 10                      	st	p4(P1)
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 12 - 2024年06月19日 11時21分03秒
+
+
+  545/ 161 : C1 11                      	ld	p4+1(p1)
+  546/ 163 : F1 11                      	add	p4+1(p1)
+  547/ 165 : C9 11                      	st	p4+1(p1)
+  548/ 167 :                            ;	} while(--cnt1);
+  549/ 167 : B9 20                      	dld	cnt1(P1)
+  550/ 169 : 9C EF                      	jnz	__do007
+  551/ 16B :                            __od007:
+  552/ 16B :                            ;}
+  553/ 16B : (MACRO)                    	ret
+  553/ 16B : 3F                              XPPC  P3
+  553/ 16C : 00                              DB    0
+  554/ 16D :                            ;
+  555/ 16D :                            ;// P2 ポインタから16進HEX読み. ==> p4に結果. 入力された桁数=Areg
+  556/ 16D :                            ;readhex()
+  557/ 16D :                            ;{
+  558/ 16D :                            readhex:
+  559/ 16D :                            ;	// p4=0
+  560/ 16D :                            ;	a=0;
+  561/ 16D : C4 00                      	ldi	0
+  562/ 16F :                            ;	p4=a;
+  563/ 16F : C9 10                      	st	p4(P1)
+  564/ 171 :                            ;	st p4+1(p1);
+  565/ 171 : C9 11                      	st	p4+1(p1)
+  566/ 173 :                            ;	// r4=0
+  567/ 173 :                            ;	r4=a;
+  568/ 173 : C9 0E                      	st	r4(P1)
+  569/ 175 :                            ;	while(1) {
+  570/ 175 :                            __wh008:
+  571/ 175 :                            ;		a=*p2++;e=a;
+  572/ 175 : C6 01                      	ld	@1(p2)
+  573/ 177 : 01                         	xae
+  574/ 178 : 40                         	lde
+  575/ 179 :                            ;		readhex1();e=a;
+  576/ 179 : (MACRO)                    	call	readhex1
+  576/ 179 : 3F                              XPPC  P3
+  576/ 17A : 01                              DB    H(READHEX1-1)
+  576/ 17B : 9D                              DB    L(READHEX1-1)
+  577/ 17C : 01                         	xae
+  578/ 17D : 40                         	lde
+  579/ 17E :                            ;		if(e!=0xff) {
+  580/ 17E : 40                         	lde
+  581/ 17F : 03                         	scl
+  582/ 180 : FC FF                      	cai	0xff
+  583/ 182 : 98 12                      	jz	__el009
+  584/ 184 :                            ;			p4mul16();
+  585/ 184 : (MACRO)                    	call	p4mul16
+  585/ 184 : 3F                              XPPC  P3
+  585/ 185 : 01                              DB    H(P4MUL16-1)
+  585/ 186 : 55                              DB    L(P4MUL16-1)
+  586/ 187 :                            ;			a=e;
+  587/ 187 : 40                         	lde
+  588/ 188 :                            ;			a+=p4;p4=a;
+  589/ 188 : 02                         	ccl
+  590/ 189 : F1 10                      	add	p4(P1)
+  591/ 18B : C9 10                      	st	p4(P1)
+  592/ 18D :                            ;			a=r4;a+=1;r4=a;
+  593/ 18D : C1 0E                      	ld	r4(P1)
+  594/ 18F : 02                         	ccl
+  595/ 190 : F4 01                      	adi	1
+  596/ 192 : C9 0E                      	st	r4(P1)
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 13 - 2024年06月19日 11時21分03秒
+
+
+  597/ 194 :                            ;		}else{
+  598/ 194 : 90 04                      	jmp	__fi009
+  599/ 196 :                            __el009:
+  600/ 196 :                            ;			a=r4;
+  601/ 196 : C1 0E                      	ld	r4(P1)
+  602/ 198 :                            ;			return;
+  603/ 198 : (MACRO)                    	ret
+  603/ 198 : 3F                              XPPC  P3
+  603/ 199 : 00                              DB    0
+  604/ 19A :                            ;		}
+  605/ 19A :                            __fi009:
+  606/ 19A :                            ;	}
+  607/ 19A : 90 D9                      	jmp	__wh008
+  608/ 19C :                            __ew008:
+  609/ 19C :                            ;}
+  610/ 19C : (MACRO)                    	ret
+  610/ 19C : 3F                              XPPC  P3
+  610/ 19D : 00                              DB    0
+  611/ 19E :                            ;
+  612/ 19E :                            ;readhex1()
+  613/ 19E :                            ;{
+  614/ 19E :                            readhex1:
+  615/ 19E :                            ;	lc();e=a;
+  616/ 19E : (MACRO)                    	call	lc
+  616/ 19E : 3F                              XPPC  P3
+  616/ 19F : 02                              DB    H(LC-1)
+  616/ 1A0 : 4B                              DB    L(LC-1)
+  617/ 1A1 : 01                         	xae
+  618/ 1A2 : 40                         	lde
+  619/ 1A3 :                            ;	if(e>='0') {
+  620/ 1A3 : 40                         	lde
+  621/ 1A4 : 03                         	scl
+  622/ 1A5 : FC 30                      	cai	'0'
+  623/ 1A7 : 94 02                      	jp	$+4
+  624/ 1A9 : 90 0C                      	jmp	__el010
+  625/ 1AB :                            ;		if(e<0x3a) { // <='9'
+  626/ 1AB : 40                         	lde
+  627/ 1AC : 03                         	scl
+  628/ 1AD : FC 3A                      	cai	0x3a
+  629/ 1AF : 94 06                      	jp	__el011
+  630/ 1B1 :                            ;			a=e;
+  631/ 1B1 : 40                         	lde
+  632/ 1B2 :                            ;			a-=0x30;
+  633/ 1B2 : 03                         	scl
+  634/ 1B3 : FC 30                      	cai	0x30
+  635/ 1B5 :                            ;			return;
+  636/ 1B5 : (MACRO)                    	ret
+  636/ 1B5 : 3F                              XPPC  P3
+  636/ 1B6 : 00                              DB    0
+  637/ 1B7 :                            ;		}
+  638/ 1B7 :                            ;	}
+  639/ 1B7 :                            __el011:
+  640/ 1B7 :                            ;	if(e>='a') {
+  641/ 1B7 :                            __el010:
+  642/ 1B7 : 40                         	lde
+  643/ 1B8 : 03                         	scl
+  644/ 1B9 : FC 61                      	cai	'a'
+  645/ 1BB : 94 02                      	jp	$+4
+  646/ 1BD : 90 0C                      	jmp	__el012
+  647/ 1BF :                            ;		if(e<'g') {
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 14 - 2024年06月19日 11時21分03秒
+
+
+  648/ 1BF : 40                         	lde
+  649/ 1C0 : 03                         	scl
+  650/ 1C1 : FC 67                      	cai	'g'
+  651/ 1C3 : 94 06                      	jp	__el013
+  652/ 1C5 :                            ;			a=e;
+  653/ 1C5 : 40                         	lde
+  654/ 1C6 :                            ;			a-=0x57;  // 0x61 - 10
+  655/ 1C6 : 03                         	scl
+  656/ 1C7 : FC 57                      	cai	0x57
+  657/ 1C9 :                            ;			return;
+  658/ 1C9 : (MACRO)                    	ret
+  658/ 1C9 : 3F                              XPPC  P3
+  658/ 1CA : 00                              DB    0
+  659/ 1CB :                            ;		}
+  660/ 1CB :                            ;	}
+  661/ 1CB :                            __el013:
+  662/ 1CB :                            ;	a=0xff;
+  663/ 1CB :                            __el012:
+  664/ 1CB : C4 FF                      	ldi	0xff
+  665/ 1CD :                            ;}
+  666/ 1CD : (MACRO)                    	ret
+  666/ 1CD : 3F                              XPPC  P3
+  666/ 1CE : 00                              DB    0
+  667/ 1CF :                            ;
+  668/ 1CF :                            ;
+  669/ 1CF :                            ;// ==========================================
+  670/ 1CF :                            ;// 出力関数
+  671/ 1CF :                            ;
+  672/ 1CF :                            ;//  アスキーダンプ１行
+  673/ 1CF :                            ;//  アドレスは ea1
+  674/ 1CF :                            ;ascdump_16()
+  675/ 1CF :                            ;{
+  676/ 1CF :                            ascdump_16:
+  677/ 1CF :                            ;	push(p2);
+  678/ 1CF : (MACRO)                    	push	p2
+  678/ 1CF : 01                                  XAE
+  678/ 1D0 : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+  678/ 1D2 : 01                                  XAE
+  678/ 1D3 : 36                                  XPAH   P2
+> > > moni2.asm(678) PUSH(5):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  678/ 1D4 : C9 80                               ST     -128(P1)
+  678/ 1D6 : 36                                  XPAH   P2
+  678/ 1D7 : 01                                  XAE
+  678/ 1D8 : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+  678/ 1DA : 01                                  XAE
+  678/ 1DB : 32                                  XPAL   P2
+> > > moni2.asm(678) PUSH(11):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  678/ 1DC : C9 80                               ST     -128(P1)
+  678/ 1DE : 32                                  XPAL   P2
+  679/ 1DF :                            ;	ldptr(p2,ea1);
+  680/ 1DF : (MACRO)                    	ldptr	p2,ea1
+  680/ 1DF : 32                                  XPAL   P2
+  680/ 1E0 : C1 23                               LD             EA1(P1)
+  680/ 1E2 : 32                                  XPAL   P2
+  680/ 1E3 : 36                                  XPAH   P2
+  680/ 1E4 : C1 24                               LD             EA1+1(P1)
+  680/ 1E6 : 36                                  XPAH   P2
+  681/ 1E7 :                            ;	ascdump_8();
+  682/ 1E7 : (MACRO)                    	call	ascdump_8
+  682/ 1E7 : 3F                              XPPC  P3
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 15 - 2024年06月19日 11時21分03秒
+
+
+  682/ 1E8 : 02                              DB    H(ASCDUMP_8-1)
+  682/ 1E9 : 05                              DB    L(ASCDUMP_8-1)
+  683/ 1EA :                            ;	pr_spc();
+  684/ 1EA : (MACRO)                    	call	pr_spc
+  684/ 1EA : 3F                              XPPC  P3
+  684/ 1EB : 03                              DB    H(PR_SPC-1)
+  684/ 1EC : 66                              DB    L(PR_SPC-1)
+  685/ 1ED :                            ;	ascdump_8();
+  686/ 1ED : (MACRO)                    	call	ascdump_8
+  686/ 1ED : 3F                              XPPC  P3
+  686/ 1EE : 02                              DB    H(ASCDUMP_8-1)
+  686/ 1EF : 05                              DB    L(ASCDUMP_8-1)
+  687/ 1F0 :                            ;	pop(p2);
+  688/ 1F0 : (MACRO)                    	pop	p2
+  688/ 1F0 : 01                                  XAE
+  688/ 1F1 : C1 00                               LD     SP(P1)     ; Ereg= SP
+  688/ 1F3 : 01                                  XAE
+  688/ 1F4 : 32                                  XPAL   P2
+> > > moni2.asm(688) POP(5):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  688/ 1F5 : C1 80                               LD     -128(P1)
+  688/ 1F7 : 32                                  XPAL   P2
+  688/ 1F8 : 01                                  XAE
+  688/ 1F9 : A9 00                               ILD     SP(P1)     ; Ereg = ++SP
+  688/ 1FB : 01                                  XAE
+  688/ 1FC : 36                                  XPAH   P2
+> > > moni2.asm(688) POP(11):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  688/ 1FD : C1 80                               LD     -128(P1)
+  688/ 1FF : 36                                  XPAH   P2
+  688/ 200 : 01                                  XAE
+  688/ 201 : A9 00                               ILD     SP(P1)     ; ++SP
+  688/ 203 : 01                                  XAE
+  689/ 204 :                            ;}
+  690/ 204 : (MACRO)                    	ret
+  690/ 204 : 3F                              XPPC  P3
+  690/ 205 : 00                              DB    0
+  691/ 206 :                            ;
+  692/ 206 :                            ;//  アスキーダンプ8byte
+  693/ 206 :                            ;ascdump_8()
+  694/ 206 :                            ;{
+  695/ 206 :                            ascdump_8:
+  696/ 206 :                            ;	cnt2=8;
+  697/ 206 : C4 08                      	ldi	8
+  698/ 208 : C9 21                      	st	cnt2(P1)
+  699/ 20A :                            ;	do {
+  700/ 20A :                            __do014:
+  701/ 20A :                            ;		a=*p2++;
+  702/ 20A : C6 01                      	ld	@1(p2)
+  703/ 20C :                            ;		ascdump1();
+  704/ 20C : (MACRO)                    	call	ascdump1
+  704/ 20C : 3F                              XPPC  P3
+  704/ 20D : 02                              DB    H(ASCDUMP1-1)
+  704/ 20E : 14                              DB    L(ASCDUMP1-1)
+  705/ 20F :                            ;	} while(--cnt2);
+  706/ 20F : B9 21                      	dld	cnt2(P1)
+  707/ 211 : 9C F7                      	jnz	__do014
+  708/ 213 :                            __od014:
+  709/ 213 :                            ;}
+  710/ 213 : (MACRO)                    	ret
+  710/ 213 : 3F                              XPPC  P3
+  710/ 214 : 00                              DB    0
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 16 - 2024年06月19日 11時21分03秒
+
+
+  711/ 215 :                            ;
+  712/ 215 :                            ;//  アスキーダンプ1byte
+  713/ 215 :                            ;ascdump1()
+  714/ 215 :                            ;{
+  715/ 215 :                            ascdump1:
+  716/ 215 :                            ;	e=a;
+  717/ 215 : 01                         	xae
+  718/ 216 : 40                         	lde
+  719/ 217 :                            ;	if(e<0x20) {
+  720/ 217 : 40                         	lde
+  721/ 218 : 03                         	scl
+  722/ 219 : FC 20                      	cai	0x20
+  723/ 21B : 94 04                      	jp	__el015
+  724/ 21D :                            ;		a=' ';e=a;
+  725/ 21D : C4 20                      	ldi	' '
+  726/ 21F : 01                         	xae
+  727/ 220 : 40                         	lde
+  728/ 221 :                            ;	}
+  729/ 221 :                            ;	if(e>=0x7f) {
+  730/ 221 :                            __el015:
+  731/ 221 : 40                         	lde
+  732/ 222 : 03                         	scl
+  733/ 223 : FC 7F                      	cai	0x7f
+  734/ 225 : 94 02                      	jp	$+4
+  735/ 227 : 90 04                      	jmp	__el016
+  736/ 229 :                            ;		a=' ';e=a;
+  737/ 229 : C4 20                      	ldi	' '
+  738/ 22B : 01                         	xae
+  739/ 22C : 40                         	lde
+  740/ 22D :                            ;	}
+  741/ 22D :                            ;	a=e;putc();
+  742/ 22D :                            __el016:
+  743/ 22D : 40                         	lde
+  744/ 22E : (MACRO)                    	call	putc
+  744/ 22E : 3F                              XPPC  P3
+  744/ 22F : 01                              DB    H(PUTC-1)
+  744/ 230 : 40                              DB    L(PUTC-1)
+  745/ 231 :                            ;}
+  746/ 231 : (MACRO)                    	ret
+  746/ 231 : 3F                              XPPC  P3
+  746/ 232 : 00                              DB    0
+  747/ 233 :                            ;
+  748/ 233 :                            ;//  大文字にする.
+  749/ 233 :                            ;uc()
+  750/ 233 :                            ;{
+  751/ 233 :                            uc:
+  752/ 233 :                            ;	e=a;
+  753/ 233 : 01                         	xae
+  754/ 234 : 40                         	lde
+  755/ 235 :                            ;	if(e>='a') {
+  756/ 235 : 40                         	lde
+  757/ 236 : 03                         	scl
+  758/ 237 : FC 61                      	cai	'a'
+  759/ 239 : 94 02                      	jp	$+4
+  760/ 23B : 90 0C                      	jmp	__el017
+  761/ 23D :                            ;		if(e<0x7b) {  // <='z'
+  762/ 23D : 40                         	lde
+  763/ 23E : 03                         	scl
+  764/ 23F : FC 7B                      	cai	0x7b
+  765/ 241 : 94 06                      	jp	__el018
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 17 - 2024年06月19日 11時21分03秒
+
+
+  766/ 243 :                            ;			a=e;
+  767/ 243 : 40                         	lde
+  768/ 244 :                            ;			a-=0x20;
+  769/ 244 : 03                         	scl
+  770/ 245 : FC 20                      	cai	0x20
+  771/ 247 :                            ;			return;
+  772/ 247 : (MACRO)                    	ret
+  772/ 247 : 3F                              XPPC  P3
+  772/ 248 : 00                              DB    0
+  773/ 249 :                            ;		}
+  774/ 249 :                            ;	}
+  775/ 249 :                            __el018:
+  776/ 249 :                            ;	a=e;
+  777/ 249 :                            __el017:
+  778/ 249 : 40                         	lde
+  779/ 24A :                            ;}
+  780/ 24A : (MACRO)                    	ret
+  780/ 24A : 3F                              XPPC  P3
+  780/ 24B : 00                              DB    0
+  781/ 24C :                            ;
+  782/ 24C :                            ;//  小文字にする.
+  783/ 24C :                            ;lc()
+  784/ 24C :                            ;{
+  785/ 24C :                            lc:
+  786/ 24C :                            ;	e=a;
+  787/ 24C : 01                         	xae
+  788/ 24D : 40                         	lde
+  789/ 24E :                            ;	if(e>='A') {
+  790/ 24E : 40                         	lde
+  791/ 24F : 03                         	scl
+  792/ 250 : FC 41                      	cai	'A'
+  793/ 252 : 94 02                      	jp	$+4
+  794/ 254 : 90 0C                      	jmp	__el019
+  795/ 256 :                            ;		if(e<0x5b) {  // <='Z'
+  796/ 256 : 40                         	lde
+  797/ 257 : 03                         	scl
+  798/ 258 : FC 5B                      	cai	0x5b
+  799/ 25A : 94 06                      	jp	__el020
+  800/ 25C :                            ;			a=e;
+  801/ 25C : 40                         	lde
+  802/ 25D :                            ;			a+=0x20;
+  803/ 25D : 02                         	ccl
+  804/ 25E : F4 20                      	adi	0x20
+  805/ 260 :                            ;			return;
+  806/ 260 : (MACRO)                    	ret
+  806/ 260 : 3F                              XPPC  P3
+  806/ 261 : 00                              DB    0
+  807/ 262 :                            ;		}
+  808/ 262 :                            ;	}
+  809/ 262 :                            __el020:
+  810/ 262 :                            ;	a=e;
+  811/ 262 :                            __el019:
+  812/ 262 : 40                         	lde
+  813/ 263 :                            ;}
+  814/ 263 : (MACRO)                    	ret
+  814/ 263 : 3F                              XPPC  P3
+  814/ 264 : 00                              DB    0
+  815/ 265 :                            ;
+  816/ 265 :                            ;inc_p2()
+  817/ 265 :                            ;{
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 18 - 2024年06月19日 11時21分03秒
+
+
+  818/ 265 :                            inc_p2:
+  819/ 265 :                            ;	xpal(p2);
+  820/ 265 : 32                         	xpal	p2
+  821/ 266 :                            ;	ccl ; adi(1);
+  822/ 266 : 02                         	ccl
+  823/ 267 : F4 01                      	adi	1
+  824/ 269 :                            ;	xpal(p2);
+  825/ 269 : 32                         	xpal	p2
+  826/ 26A :                            ;
+  827/ 26A :                            ;	xpah(p2);
+  828/ 26A : 36                         	xpah	p2
+  829/ 26B :                            ;	adi(0);
+  830/ 26B : F4 00                      	adi	0
+  831/ 26D :                            ;	xpah(p2);
+  832/ 26D : 36                         	xpah	p2
+  833/ 26E :                            ;}
+  834/ 26E : (MACRO)                    	ret
+  834/ 26E : 3F                              XPPC  P3
+  834/ 26F : 00                              DB    0
+  835/ 270 :                            ;
+  836/ 270 :                            ;//  メモリーダンプ
+  837/ 270 :                            ;//  アドレスは p2
+  838/ 270 :                            ;mdump()
+  839/ 270 :                            ;{
+  840/ 270 :                            mdump:
+  841/ 270 :                            ;	a=16;cnt1=a;
+  842/ 270 : C4 10                      	ldi	16
+  843/ 272 : C9 20                      	st	cnt1(P1)
+  844/ 274 :                            ;	do {
+  845/ 274 :                            __do021:
+  846/ 274 :                            ;		mdump_16();
+  847/ 274 : (MACRO)                    	call	mdump_16
+  847/ 274 : 3F                              XPPC  P3
+  847/ 275 : 02                              DB    H(MDUMP_16-1)
+  847/ 276 : 84                              DB    L(MDUMP_16-1)
+  848/ 277 :                            ;	} while(--cnt1);
+  849/ 277 : B9 20                      	dld	cnt1(P1)
+  850/ 279 : 9C F9                      	jnz	__do021
+  851/ 27B :                            __od021:
+  852/ 27B :                            ;
+  853/ 27B :                            ;	stptr(p2,p5);
+  854/ 27B : (MACRO)                    	stptr	p2,p5
+  854/ 27B : 32                                  XPAL   P2
+  854/ 27C : C9 12                               ST             P5(P1)
+  854/ 27E : 32                                  XPAL   P2
+  854/ 27F : 36                                  XPAH   P2
+  854/ 280 : C9 13                               ST             P5+1(P1)
+  854/ 282 : 36                                  XPAH   P2
+  855/ 283 :                            ;}
+  856/ 283 : (MACRO)                    	ret
+  856/ 283 : 3F                              XPPC  P3
+  856/ 284 : 00                              DB    0
+  857/ 285 :                            ;
+  858/ 285 :                            ;//  メモリーダンプ16byte
+  859/ 285 :                            ;//  アドレスは p2
+  860/ 285 :                            ;mdump_16()
+  861/ 285 :                            ;{
+  862/ 285 :                            mdump_16:
+  863/ 285 :                            ;	stptr(p2,ea1)
+  864/ 285 : (MACRO)                    	stptr	p2,ea1
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 19 - 2024年06月19日 11時21分03秒
+
+
+  864/ 285 : 32                                  XPAL   P2
+  864/ 286 : C9 23                               ST             EA1(P1)
+  864/ 288 : 32                                  XPAL   P2
+  864/ 289 : 36                                  XPAH   P2
+  864/ 28A : C9 24                               ST             EA1+1(P1)
+  864/ 28C : 36                                  XPAH   P2
+  865/ 28D :                            ;
+  866/ 28D :                            ;	a=ea2;a<>e;
+  867/ 28D : C1 24                      	ld	ea2(P1)
+  868/ 28F : 01                         	xae
+  869/ 290 :                            ;	a=ea1;
+  870/ 290 : C1 23                      	ld	ea1(P1)
+  871/ 292 :                            ;	prhex4();
+  872/ 292 : (MACRO)                    	call	prhex4
+  872/ 292 : 3F                              XPPC  P3
+  872/ 293 : 02                              DB    H(PRHEX4-1)
+  872/ 294 : D2                              DB    L(PRHEX4-1)
+  873/ 295 :                            ;	pr_spc();
+  874/ 295 : (MACRO)                    	call	pr_spc
+  874/ 295 : 3F                              XPPC  P3
+  874/ 296 : 03                              DB    H(PR_SPC-1)
+  874/ 297 : 66                              DB    L(PR_SPC-1)
+  875/ 298 :                            ;
+  876/ 298 :                            ;	mdump_8();
+  877/ 298 : (MACRO)                    	call	mdump_8
+  877/ 298 : 3F                              XPPC  P3
+  877/ 299 : 02                              DB    H(MDUMP_8-1)
+  877/ 29A : BD                              DB    L(MDUMP_8-1)
+  878/ 29B :                            ;	pr_spc();
+  879/ 29B : (MACRO)                    	call	pr_spc
+  879/ 29B : 3F                              XPPC  P3
+  879/ 29C : 03                              DB    H(PR_SPC-1)
+  879/ 29D : 66                              DB    L(PR_SPC-1)
+  880/ 29E :                            ;	mdump_8();
+  881/ 29E : (MACRO)                    	call	mdump_8
+  881/ 29E : 3F                              XPPC  P3
+  881/ 29F : 02                              DB    H(MDUMP_8-1)
+  881/ 2A0 : BD                              DB    L(MDUMP_8-1)
+  882/ 2A1 :                            ;
+  883/ 2A1 :                            ;	// ASCII DUMP
+  884/ 2A1 :                            ;	stptr(p2,ea1);
+  885/ 2A1 : (MACRO)                    	stptr	p2,ea1
+  885/ 2A1 : 32                                  XPAL   P2
+  885/ 2A2 : C9 23                               ST             EA1(P1)
+  885/ 2A4 : 32                                  XPAL   P2
+  885/ 2A5 : 36                                  XPAH   P2
+  885/ 2A6 : C9 24                               ST             EA1+1(P1)
+  885/ 2A8 : 36                                  XPAH   P2
+  886/ 2A9 :                            ;	sub16(ea1);
+  887/ 2A9 : (MACRO)                    	sub16	ea1
+  887/ 2A9 : 03                              SCL
+  887/ 2AA : C1 23                           LD     EA1(P1)
+  887/ 2AC : FC 10                           CAI    16
+  887/ 2AE : C9 23                           ST     EA1(P1)
+  887/ 2B0 : C1 24                           LD     EA1+1(P1)
+  887/ 2B2 : FC 00                           CAI    0
+  887/ 2B4 : C9 24                           ST     EA1+1(P1)
+  888/ 2B6 :                            ;	ascdump_16();
+  889/ 2B6 : (MACRO)                    	call	ascdump_16
+  889/ 2B6 : 3F                              XPPC  P3
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 20 - 2024年06月19日 11時21分03秒
+
+
+  889/ 2B7 : 01                              DB    H(ASCDUMP_16-1)
+  889/ 2B8 : CE                              DB    L(ASCDUMP_16-1)
+  890/ 2B9 :                            ;
+  891/ 2B9 :                            ;	put_crlf();
+  892/ 2B9 : (MACRO)                    	call	put_crlf
+  892/ 2B9 : 3F                              XPPC  P3
+  892/ 2BA : 03                              DB    H(PUT_CRLF-1)
+  892/ 2BB : 6D                              DB    L(PUT_CRLF-1)
+  893/ 2BC :                            ;}
+  894/ 2BC : (MACRO)                    	ret
+  894/ 2BC : 3F                              XPPC  P3
+  894/ 2BD : 00                              DB    0
+  895/ 2BE :                            ;
+  896/ 2BE :                            ;//  メモリーダンプ8byte
+  897/ 2BE :                            ;mdump_8()
+  898/ 2BE :                            ;{
+  899/ 2BE :                            mdump_8:
+  900/ 2BE :                            ;	cnt2=8;
+  901/ 2BE : C4 08                      	ldi	8
+  902/ 2C0 : C9 21                      	st	cnt2(P1)
+  903/ 2C2 :                            ;	do {
+  904/ 2C2 :                            __do022:
+  905/ 2C2 :                            ;		a=*p2;
+  906/ 2C2 : C2 00                      	ld	0(p2)
+  907/ 2C4 :                            ;		prhex2();
+  908/ 2C4 : (MACRO)                    	call	prhex2
+  908/ 2C4 : 3F                              XPPC  P3
+  908/ 2C5 : 02                              DB    H(PRHEX2-1)
+  908/ 2C6 : E3                              DB    L(PRHEX2-1)
+  909/ 2C7 :                            ;		pr_spc();
+  910/ 2C7 : (MACRO)                    	call	pr_spc
+  910/ 2C7 : 3F                              XPPC  P3
+  910/ 2C8 : 03                              DB    H(PR_SPC-1)
+  910/ 2C9 : 66                              DB    L(PR_SPC-1)
+  911/ 2CA :                            ;		inc_p2();
+  912/ 2CA : (MACRO)                    	call	inc_p2
+  912/ 2CA : 3F                              XPPC  P3
+  912/ 2CB : 02                              DB    H(INC_P2-1)
+  912/ 2CC : 64                              DB    L(INC_P2-1)
+  913/ 2CD :                            ;	} while(--cnt2);
+  914/ 2CD : B9 21                      	dld	cnt2(P1)
+  915/ 2CF : 9C F1                      	jnz	__do022
+  916/ 2D1 :                            __od022:
+  917/ 2D1 :                            ;}
+  918/ 2D1 : (MACRO)                    	ret
+  918/ 2D1 : 3F                              XPPC  P3
+  918/ 2D2 : 00                              DB    0
+  919/ 2D3 :                            ;
+  920/ 2D3 :                            ;//  EAレジスタを16進4桁表示
+  921/ 2D3 :                            ;prhex4()
+  922/ 2D3 :                            ;{
+  923/ 2D3 :                            prhex4:
+  924/ 2D3 :                            ;	ea2=a;
+  925/ 2D3 : C9 24                      	st	ea2(P1)
+  926/ 2D5 :                            ;	a<>e;
+  927/ 2D5 : 01                         	xae
+  928/ 2D6 :                            ;	ea1=a;
+  929/ 2D6 : C9 23                      	st	ea1(P1)
+  930/ 2D8 :                            ;
+  931/ 2D8 :                            ;prhex4ea1:
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 21 - 2024年06月19日 11時21分03秒
+
+
+  932/ 2D8 :                            prhex4ea1:
+  933/ 2D8 :                            ;	a=ea1;
+  934/ 2D8 : C1 23                      	ld	ea1(P1)
+  935/ 2DA :                            ;	prhex2();
+  936/ 2DA : (MACRO)                    	call	prhex2
+  936/ 2DA : 3F                              XPPC  P3
+  936/ 2DB : 02                              DB    H(PRHEX2-1)
+  936/ 2DC : E3                              DB    L(PRHEX2-1)
+  937/ 2DD :                            ;	a=ea2;
+  938/ 2DD : C1 24                      	ld	ea2(P1)
+  939/ 2DF :                            ;	prhex2();
+  940/ 2DF : (MACRO)                    	call	prhex2
+  940/ 2DF : 3F                              XPPC  P3
+  940/ 2E0 : 02                              DB    H(PRHEX2-1)
+  940/ 2E1 : E3                              DB    L(PRHEX2-1)
+  941/ 2E2 :                            ;}
+  942/ 2E2 : (MACRO)                    	ret
+  942/ 2E2 : 3F                              XPPC  P3
+  942/ 2E3 : 00                              DB    0
+  943/ 2E4 :                            ;
+  944/ 2E4 :                            ;//  Aレジスタを16進2桁表示
+  945/ 2E4 :                            ;prhex2()
+  946/ 2E4 :                            ;{
+  947/ 2E4 :                            prhex2:
+  948/ 2E4 :                            ;	push_ea;
+  949/ 2E4 : (MACRO)                    	push_ea
+  949/ 2E4 : C9 02                               ST     ASAV(P1)
+  949/ 2E6 : 01                                  XAE
+  949/ 2E7 : C9 01                               ST     ESAV(P1)
+  949/ 2E9 : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+  949/ 2EB : 01                                  XAE
+  949/ 2EC : C1 01                               LD     ESAV(P1)
+> > > moni2.asm(949) PUSH_EA(7):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  949/ 2EE : C9 80                               ST     -128(P1)   ; PUSH E
+  949/ 2F0 : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+  949/ 2F2 : 01                                  XAE
+  949/ 2F3 : C1 02                               LD     ASAV(P1)
+> > > moni2.asm(949) PUSH_EA(11):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  949/ 2F5 : C9 80                               ST     -128(P1)   ; PUSH A
+  949/ 2F7 : 01                                  XAE
+  949/ 2F8 : C1 01                               LD     ESAV(P1)
+  949/ 2FA : 01                                  XAE
+  950/ 2FB :                            ;	e=a;
+  951/ 2FB : 01                         	xae
+  952/ 2FC : 40                         	lde
+  953/ 2FD :                            ;	a>>=1;
+  954/ 2FD : 1C                         	sr
+  955/ 2FE :                            ;	a>>=1;
+  956/ 2FE : 1C                         	sr
+  957/ 2FF :                            ;	a>>=1;
+  958/ 2FF : 1C                         	sr
+  959/ 300 :                            ;	a>>=1;
+  960/ 300 : 1C                         	sr
+  961/ 301 :                            ;	prhex1();
+  962/ 301 : (MACRO)                    	call	prhex1
+  962/ 301 : 3F                              XPPC  P3
+  962/ 302 : 03                              DB    H(PRHEX1-1)
+  962/ 303 : 1F                              DB    L(PRHEX1-1)
+  963/ 304 :                            ;
+  964/ 304 :                            ;	a=e;
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 22 - 2024年06月19日 11時21分03秒
+
+
+  965/ 304 : 40                         	lde
+  966/ 305 :                            ;	prhex1();
+  967/ 305 : (MACRO)                    	call	prhex1
+  967/ 305 : 3F                              XPPC  P3
+  967/ 306 : 03                              DB    H(PRHEX1-1)
+  967/ 307 : 1F                              DB    L(PRHEX1-1)
+  968/ 308 :                            ;	pop_ea;
+  969/ 308 : (MACRO)                    	pop_ea
+  969/ 308 : C1 00                               LD     SP(P1)     ; Ereg= SP
+  969/ 30A : 01                                  XAE
+> > > moni2.asm(969) POP_EA(3):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  969/ 30B : C1 80                               LD     -128(P1)
+  969/ 30D : C9 02                               ST     ASAV(P1)
+  969/ 30F : 01                                  XAE
+  969/ 310 : A9 00                               ILD    SP(P1)     ; Ereg= ++SP
+  969/ 312 : 01                                  XAE
+> > > moni2.asm(969) POP_EA(8):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  969/ 313 : C1 80                               LD     -128(P1)
+  969/ 315 : C9 01                               ST     ESAV(P1)
+  969/ 317 : A9 00                               ILD    SP(P1)     ; Ereg= ++SP
+  969/ 319 : C1 01                               LD     ESAV(P1)
+  969/ 31B : 01                                  XAE
+  969/ 31C : C1 02                               LD     ASAV(P1)
+  970/ 31E :                            ;}
+  971/ 31E : (MACRO)                    	ret
+  971/ 31E : 3F                              XPPC  P3
+  971/ 31F : 00                              DB    0
+  972/ 320 :                            ;
+  973/ 320 :                            ;//  Aレジスタ下位4bitのみを16進1桁表示
+  974/ 320 :                            ;prhex1()
+  975/ 320 :                            ;{
+  976/ 320 :                            prhex1:
+  977/ 320 :                            ;	push_ea;
+  978/ 320 : (MACRO)                    	push_ea
+  978/ 320 : C9 02                               ST     ASAV(P1)
+  978/ 322 : 01                                  XAE
+  978/ 323 : C9 01                               ST     ESAV(P1)
+  978/ 325 : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+  978/ 327 : 01                                  XAE
+  978/ 328 : C1 01                               LD     ESAV(P1)
+> > > moni2.asm(978) PUSH_EA(7):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  978/ 32A : C9 80                               ST     -128(P1)   ; PUSH E
+  978/ 32C : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+  978/ 32E : 01                                  XAE
+  978/ 32F : C1 02                               LD     ASAV(P1)
+> > > moni2.asm(978) PUSH_EA(11):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+  978/ 331 : C9 80                               ST     -128(P1)   ; PUSH A
+  978/ 333 : 01                                  XAE
+  978/ 334 : C1 01                               LD     ESAV(P1)
+  978/ 336 : 01                                  XAE
+  979/ 337 :                            ;	a&=0x0f;
+  980/ 337 : D4 0F                      	ani	0x0f
+  981/ 339 :                            ;	e=a;
+  982/ 339 : 01                         	xae
+  983/ 33A : 40                         	lde
+  984/ 33B :                            ;	if( a >= 10) {
+  985/ 33B : 03                         	scl
+  986/ 33C : FC 0A                      	cai	10
+  987/ 33E : 94 02                      	jp	$+4
+  988/ 340 : 90 06                      	jmp	__el023
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 23 - 2024年06月19日 11時21分03秒
+
+
+  989/ 342 :                            ;		a=e;a+=7;
+  990/ 342 : 40                         	lde
+  991/ 343 : 02                         	ccl
+  992/ 344 : F4 07                      	adi	7
+  993/ 346 :                            ;	}else{
+  994/ 346 : 90 01                      	jmp	__fi023
+  995/ 348 :                            __el023:
+  996/ 348 :                            ;		a=e;
+  997/ 348 : 40                         	lde
+  998/ 349 :                            ;	}
+  999/ 349 :                            __fi023:
+ 1000/ 349 :                            ;	a += 0x30;
+ 1001/ 349 : 02                         	ccl
+ 1002/ 34A : F4 30                      	adi	0x30
+ 1003/ 34C :                            ;	putc();
+ 1004/ 34C : (MACRO)                    	call	putc
+ 1004/ 34C : 3F                              XPPC  P3
+ 1004/ 34D : 01                              DB    H(PUTC-1)
+ 1004/ 34E : 40                              DB    L(PUTC-1)
+ 1005/ 34F :                            ;	pop_ea;
+ 1006/ 34F : (MACRO)                    	pop_ea
+ 1006/ 34F : C1 00                               LD     SP(P1)     ; Ereg= SP
+ 1006/ 351 : 01                                  XAE
+> > > moni2.asm(1006) POP_EA(3):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1006/ 352 : C1 80                               LD     -128(P1)
+ 1006/ 354 : C9 02                               ST     ASAV(P1)
+ 1006/ 356 : 01                                  XAE
+ 1006/ 357 : A9 00                               ILD    SP(P1)     ; Ereg= ++SP
+ 1006/ 359 : 01                                  XAE
+> > > moni2.asm(1006) POP_EA(8):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1006/ 35A : C1 80                               LD     -128(P1)
+ 1006/ 35C : C9 01                               ST     ESAV(P1)
+ 1006/ 35E : A9 00                               ILD    SP(P1)     ; Ereg= ++SP
+ 1006/ 360 : C1 01                               LD     ESAV(P1)
+ 1006/ 362 : 01                                  XAE
+ 1006/ 363 : C1 02                               LD     ASAV(P1)
+ 1007/ 365 :                            ;}
+ 1008/ 365 : (MACRO)                    	ret
+ 1008/ 365 : 3F                              XPPC  P3
+ 1008/ 366 : 00                              DB    0
+ 1009/ 367 :                            ;//  空白文字を1つ出力
+ 1010/ 367 :                            ;pr_spc()
+ 1011/ 367 :                            ;{
+ 1012/ 367 :                            pr_spc:
+ 1013/ 367 :                            ;	a=' ';putc();
+ 1014/ 367 : C4 20                      	ldi	' '
+ 1015/ 369 : (MACRO)                    	call	putc
+ 1015/ 369 : 3F                              XPPC  P3
+ 1015/ 36A : 01                              DB    H(PUTC-1)
+ 1015/ 36B : 40                              DB    L(PUTC-1)
+ 1016/ 36C :                            ;}
+ 1017/ 36C : (MACRO)                    	ret
+ 1017/ 36C : 3F                              XPPC  P3
+ 1017/ 36D : 00                              DB    0
+ 1018/ 36E :                            ;
+ 1019/ 36E :                            ;//  改行コード出力
+ 1020/ 36E :                            ;put_crlf()
+ 1021/ 36E :                            ;{
+ 1022/ 36E :                            put_crlf:
+ 1023/ 36E :                            ;	a=0x0d;putc();
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 24 - 2024年06月19日 11時21分03秒
+
+
+ 1024/ 36E : C4 0D                      	ldi	0x0d
+ 1025/ 370 : (MACRO)                    	call	putc
+ 1025/ 370 : 3F                              XPPC  P3
+ 1025/ 371 : 01                              DB    H(PUTC-1)
+ 1025/ 372 : 40                              DB    L(PUTC-1)
+ 1026/ 373 :                            ;	a=0x0a;putc();
+ 1027/ 373 : C4 0A                      	ldi	0x0a
+ 1028/ 375 : (MACRO)                    	call	putc
+ 1028/ 375 : 3F                              XPPC  P3
+ 1028/ 376 : 01                              DB    H(PUTC-1)
+ 1028/ 377 : 40                              DB    L(PUTC-1)
+ 1029/ 378 :                            ;}
+ 1030/ 378 : (MACRO)                    	ret
+ 1030/ 378 : 3F                              XPPC  P3
+ 1030/ 379 : 00                              DB    0
+ 1031/ 37A :                            ;
+ 1032/ 37A :                            ;//  文字列入力( P2 ) 0x0a + ヌル終端.
+ 1033/ 37A :                            ;gets()
+ 1034/ 37A :                            ;{
+ 1035/ 37A :                            gets:
+ 1036/ 37A :                            ;	do {
+ 1037/ 37A :                            __do024:
+ 1038/ 37A :                            ;		getc();
+ 1039/ 37A : (MACRO)                    	call	getc
+ 1039/ 37A : 3F                              XPPC  P3
+ 1039/ 37B : 01                              DB    H(GETC-1)
+ 1039/ 37C : 3D                              DB    L(GETC-1)
+ 1040/ 37D :                            ;		*p2++=a;
+ 1041/ 37D : CE 01                      	st	@1(p2)
+ 1042/ 37F :                            ;		e=a;
+ 1043/ 37F : 01                         	xae
+ 1044/ 380 : 40                         	lde
+ 1045/ 381 :                            ;		if(e==0x0a) break;
+ 1046/ 381 : 40                         	lde
+ 1047/ 382 : 03                         	scl
+ 1048/ 383 : FC 0A                      	cai	0x0a
+ 1049/ 385 : 98 08                      	jz	__od024
+ 1050/ 387 :                            ;		if(e==0x0d) break;
+ 1051/ 387 : 40                         	lde
+ 1052/ 388 : 03                         	scl
+ 1053/ 389 : FC 0D                      	cai	0x0d
+ 1054/ 38B : 98 02                      	jz	__od024
+ 1055/ 38D :                            ;	}while(1);	
+ 1056/ 38D : 90 EB                      	jmp	__do024
+ 1057/ 38F :                            __od024:
+ 1058/ 38F :                            ;
+ 1059/ 38F :                            ;	a=0; *p2++=a;
+ 1060/ 38F : C4 00                      	ldi	0
+ 1061/ 391 : CE 01                      	st	@1(p2)
+ 1062/ 393 :                            ;}
+ 1063/ 393 : (MACRO)                    	ret
+ 1063/ 393 : 3F                              XPPC  P3
+ 1063/ 394 : 00                              DB    0
+ 1064/ 395 :                            ;
+ 1065/ 395 :                            ;
+ 1066/ 395 :                            ;//  文字列出力( P2 )ヌル終端.
+ 1067/ 395 :                            ;puts()
+ 1068/ 395 :                            ;{
+ 1069/ 395 :                            puts:
+ 1070/ 395 :                            ;	do {
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 25 - 2024年06月19日 11時21分03秒
+
+
+ 1071/ 395 :                            __do025:
+ 1072/ 395 :                            ;		a=*p2++;
+ 1073/ 395 : C6 01                      	ld	@1(p2)
+ 1074/ 397 :                            ;		if(a==0) break;
+ 1075/ 397 : 98 05                      	jz	__od025
+ 1076/ 399 :                            ;		putc();
+ 1077/ 399 : (MACRO)                    	call	putc
+ 1077/ 399 : 3F                              XPPC  P3
+ 1077/ 39A : 01                              DB    H(PUTC-1)
+ 1077/ 39B : 40                              DB    L(PUTC-1)
+ 1078/ 39C :                            ;	}while(1);	
+ 1079/ 39C : 90 F7                      	jmp	__do025
+ 1080/ 39E :                            __od025:
+ 1081/ 39E :                            ;}
+ 1082/ 39E : (MACRO)                    	ret
+ 1082/ 39E : 3F                              XPPC  P3
+ 1082/ 39F : 00                              DB    0
+ 1083/ 3A0 :                            ;
+ 1084/ 3A0 :                            ;/*
+ 1085/ 3A0 :                            ; ===========================================
+ 1086/ 3A0 :                            ; *	SC/MP-II Sample Program
+ 1087/ 3A0 :                            ; ===========================================
+ 1088/ 3A0 :                            ; セルフ逆アセンブラ
+ 1089/ 3A0 :                            ;
+ 1090/ 3A0 :                            ;
+ 1091/ 3A0 :                            ; ===========================================
+ 1092/ 3A0 :                            ; */
+ 1093/ 3A0 :                            ;
+ 1094/ 3A0 :                            ;//  メモリーダンプ
+ 1095/ 3A0 :                            ;//  アドレスは p2
+ 1096/ 3A0 :                            ;disasm()
+ 1097/ 3A0 :                            ;{
+ 1098/ 3A0 :                            disasm:
+ 1099/ 3A0 :                            ;	sp_skip();
+ 1100/ 3A0 : (MACRO)                    	call	sp_skip
+ 1100/ 3A0 : 3F                              XPPC  P3
+ 1100/ 3A1 : 01                              DB    H(SP_SKIP-1)
+ 1100/ 3A2 : 46                              DB    L(SP_SKIP-1)
+ 1101/ 3A3 :                            ;	readhex();
+ 1102/ 3A3 : (MACRO)                    	call	readhex
+ 1102/ 3A3 : 3F                              XPPC  P3
+ 1102/ 3A4 : 01                              DB    H(READHEX-1)
+ 1102/ 3A5 : 6C                              DB    L(READHEX-1)
+ 1103/ 3A6 :                            ;	if(a!=0) {
+ 1104/ 3A6 : 98 08                      	jz	__el026
+ 1105/ 3A8 :                            ;		movew(p5,p4);
+ 1106/ 3A8 : (MACRO)                    	movew	p5,p4
+ 1106/ 3A8 : C1 10                               LD    P4(P1)
+ 1106/ 3AA : C9 12                               ST    P5(P1)
+ 1106/ 3AC : C1 11                               LD    P4+1(P1)
+ 1106/ 3AE : C9 13                               ST    P5+1(P1)
+ 1107/ 3B0 :                            ;	}
+ 1108/ 3B0 :                            ;	ldptr(p2,p5);
+ 1109/ 3B0 :                            __el026:
+ 1110/ 3B0 : (MACRO)                    	ldptr	p2,p5
+ 1110/ 3B0 : 32                                  XPAL   P2
+ 1110/ 3B1 : C1 12                               LD             P5(P1)
+ 1110/ 3B3 : 32                                  XPAL   P2
+ 1110/ 3B4 : 36                                  XPAH   P2
+ 1110/ 3B5 : C1 13                               LD             P5+1(P1)
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 26 - 2024年06月19日 11時21分03秒
+
+
+ 1110/ 3B7 : 36                                  XPAH   P2
+ 1111/ 3B8 :                            ;
+ 1112/ 3B8 :                            ;	// 16 命令逆アセンブルする.
+ 1113/ 3B8 :                            ;	a=16;cnt1=a;
+ 1114/ 3B8 : C4 10                      	ldi	16
+ 1115/ 3BA : C9 20                      	st	cnt1(P1)
+ 1116/ 3BC :                            ;	do {
+ 1117/ 3BC :                            __do027:
+ 1118/ 3BC :                            ;		disasm_1();	//  逆アセンブル 1 命令分.
+ 1119/ 3BC : (MACRO)                    	call	disasm_1
+ 1119/ 3BC : 3F                              XPPC  P3
+ 1119/ 3BD : 03                              DB    H(DISASM_1-1)
+ 1119/ 3BE : CC                              DB    L(DISASM_1-1)
+ 1120/ 3BF :                            ;	} while(--cnt1);
+ 1121/ 3BF : B9 20                      	dld	cnt1(P1)
+ 1122/ 3C1 : 9C F9                      	jnz	__do027
+ 1123/ 3C3 :                            __od027:
+ 1124/ 3C3 :                            ;
+ 1125/ 3C3 :                            ;	stptr(p2,p5);   // P2ptr を p5 ワークに保管.(注目アドレス)
+ 1126/ 3C3 : (MACRO)                    	stptr	p2,p5
+ 1126/ 3C3 : 32                                  XPAL   P2
+ 1126/ 3C4 : C9 12                               ST             P5(P1)
+ 1126/ 3C6 : 32                                  XPAL   P2
+ 1126/ 3C7 : 36                                  XPAH   P2
+ 1126/ 3C8 : C9 13                               ST             P5+1(P1)
+ 1126/ 3CA : 36                                  XPAH   P2
+ 1127/ 3CB :                            ;}
+ 1128/ 3CB : (MACRO)                    	ret
+ 1128/ 3CB : 3F                              XPPC  P3
+ 1128/ 3CC : 00                              DB    0
+ 1129/ 3CD :                            ;
+ 1130/ 3CD :                            ;//  逆アセンブル 1 命令分.
+ 1131/ 3CD :                            ;//  アドレスは p2
+ 1132/ 3CD :                            ;disasm_1()
+ 1133/ 3CD :                            ;{
+ 1134/ 3CD :                            disasm_1:
+ 1135/ 3CD :                            ;	stptr(p2,ea1);
+ 1136/ 3CD : (MACRO)                    	stptr	p2,ea1
+ 1136/ 3CD : 32                                  XPAL   P2
+ 1136/ 3CE : C9 23                               ST             EA1(P1)
+ 1136/ 3D0 : 32                                  XPAL   P2
+ 1136/ 3D1 : 36                                  XPAH   P2
+ 1136/ 3D2 : C9 24                               ST             EA1+1(P1)
+ 1136/ 3D4 : 36                                  XPAH   P2
+ 1137/ 3D5 :                            ;
+ 1138/ 3D5 :                            ;	// アドレス 表示.
+ 1139/ 3D5 :                            ;	a=ea2;a<>e;
+ 1140/ 3D5 : C1 24                      	ld	ea2(P1)
+ 1141/ 3D7 : 01                         	xae
+ 1142/ 3D8 :                            ;	a=ea1;
+ 1143/ 3D8 : C1 23                      	ld	ea1(P1)
+ 1144/ 3DA :                            ;	prhex4();
+ 1145/ 3DA : (MACRO)                    	call	prhex4
+ 1145/ 3DA : 3F                              XPPC  P3
+ 1145/ 3DB : 02                              DB    H(PRHEX4-1)
+ 1145/ 3DC : D2                              DB    L(PRHEX4-1)
+ 1146/ 3DD :                            ;	pr_spc();
+ 1147/ 3DD : (MACRO)                    	call	pr_spc
+ 1147/ 3DD : 3F                              XPPC  P3
+ 1147/ 3DE : 03                              DB    H(PR_SPC-1)
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 27 - 2024年06月19日 11時21分03秒
+
+
+ 1147/ 3DF : 66                              DB    L(PR_SPC-1)
+ 1148/ 3E0 :                            ;
+ 1149/ 3E0 :                            ;	// HEX + 逆アセンブル
+ 1150/ 3E0 :                            ;	disasm_11();
+ 1151/ 3E0 : (MACRO)                    	call	disasm_11
+ 1151/ 3E0 : 3F                              XPPC  P3
+ 1151/ 3E1 : 04                              DB    H(DISASM_11-1)
+ 1151/ 3E2 : 01                              DB    L(DISASM_11-1)
+ 1152/ 3E3 :                            ;
+ 1153/ 3E3 :                            ;	put_crlf();
+ 1154/ 3E3 : (MACRO)                    	call	put_crlf
+ 1154/ 3E3 : 3F                              XPPC  P3
+ 1154/ 3E4 : 03                              DB    H(PUT_CRLF-1)
+ 1154/ 3E5 : 6D                              DB    L(PUT_CRLF-1)
+ 1155/ 3E6 :                            ;}
+ 1156/ 3E6 : (MACRO)                    	ret
+ 1156/ 3E6 : 3F                              XPPC  P3
+ 1156/ 3E7 : 00                              DB    0
+ 1157/ 3E8 :                            ;
+ 1158/ 3E8 :                            ;// P2 が 0x0080 未満のとき Areg=0 を返す.
+ 1159/ 3E8 :                            ;sub_p2_128()
+ 1160/ 3E8 :                            ;{
+ 1161/ 3E8 :                            sub_p2_128:
+ 1162/ 3E8 :                            ;	xpah(p2)
+ 1163/ 3E8 : 36                         	xpah	p2
+ 1164/ 3E9 :                            ;	ea1=a;
+ 1165/ 3E9 : C9 23                      	st	ea1(P1)
+ 1166/ 3EB :                            ;	xpah(p2)
+ 1167/ 3EB : 36                         	xpah	p2
+ 1168/ 3EC :                            ;
+ 1169/ 3EC :                            ;	a=ea1;
+ 1170/ 3EC : C1 23                      	ld	ea1(P1)
+ 1171/ 3EE :                            ;	if(a!=0) {
+ 1172/ 3EE : 98 02                      	jz	__el028
+ 1173/ 3F0 :                            ;		return;
+ 1174/ 3F0 : (MACRO)                    	ret
+ 1174/ 3F0 : 3F                              XPPC  P3
+ 1174/ 3F1 : 00                              DB    0
+ 1175/ 3F2 :                            ;	}
+ 1176/ 3F2 :                            ;	xpal(p2)
+ 1177/ 3F2 :                            __el028:
+ 1178/ 3F2 : 32                         	xpal	p2
+ 1179/ 3F3 :                            ;	ea1=a;
+ 1180/ 3F3 : C9 23                      	st	ea1(P1)
+ 1181/ 3F5 :                            ;	xpal(p2)
+ 1182/ 3F5 : 32                         	xpal	p2
+ 1183/ 3F6 :                            ;	
+ 1184/ 3F6 :                            ;	a=ea1;
+ 1185/ 3F6 : C1 23                      	ld	ea1(P1)
+ 1186/ 3F8 :                            ;	jp _ok1
+ 1187/ 3F8 : 94 04                      	jp	_ok1
+ 1188/ 3FA :                            ;
+ 1189/ 3FA :                            ;	a=0xff;
+ 1190/ 3FA : C4 FF                      	ldi	0xff
+ 1191/ 3FC :                            ;	return;
+ 1192/ 3FC : (MACRO)                    	ret
+ 1192/ 3FC : 3F                              XPPC  P3
+ 1192/ 3FD : 00                              DB    0
+ 1193/ 3FE :                            ;
+ 1194/ 3FE :                            ;_ok1:
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 28 - 2024年06月19日 11時21分03秒
+
+
+ 1195/ 3FE :                            _ok1:
+ 1196/ 3FE :                            ;	a=0;
+ 1197/ 3FE : C4 00                      	ldi	0
+ 1198/ 400 :                            ;}
+ 1199/ 400 : (MACRO)                    	ret
+ 1199/ 400 : 3F                              XPPC  P3
+ 1199/ 401 : 00                              DB    0
+ 1200/ 402 :                            ;
+ 1201/ 402 :                            ;// HEX Print + 逆アセンブル
+ 1202/ 402 :                            ;disasm_11()
+ 1203/ 402 :                            ;{
+ 1204/ 402 :                            disasm_11:
+ 1205/ 402 :                            ;	stptr(p2,pcl);
+ 1206/ 402 : (MACRO)                    	stptr	p2,pcl
+ 1206/ 402 : 32                                  XPAL   P2
+ 1206/ 403 : C9 2A                               ST             PCL(P1)
+ 1206/ 405 : 32                                  XPAL   P2
+ 1206/ 406 : 36                                  XPAH   P2
+ 1206/ 407 : C9 2B                               ST             PCL+1(P1)
+ 1206/ 409 : 36                                  XPAH   P2
+ 1207/ 40A :                            ;	ld 2(p2);op3=a;
+ 1208/ 40A : C2 02                      	ld	2(p2)
+ 1209/ 40C : C9 27                      	st	op3(P1)
+ 1210/ 40E :                            ;	ld 1(p2);op2=a;
+ 1211/ 40E : C2 01                      	ld	1(p2)
+ 1212/ 410 : C9 26                      	st	op2(P1)
+ 1213/ 412 :                            ;
+ 1214/ 412 :                            ;	a=*p2   ;op1=a;
+ 1215/ 412 : C2 00                      	ld	0(p2)
+ 1216/ 414 : C9 25                      	st	op1(P1)
+ 1217/ 416 :                            ;	a &= 0x80;
+ 1218/ 416 : D4 80                      	ani	0x80
+ 1219/ 418 :                            ;	if(a!=0) {
+ 1220/ 418 : 98 06                      	jz	__el029
+ 1221/ 41A :                            ;		a=2;goto _ret2;
+ 1222/ 41A : C4 02                      	ldi	2
+ 1223/ 41C : 90 1E                      	jmp	_ret2
+ 1224/ 41E :                            ;	}else{
+ 1225/ 41E : 90 1C                      	jmp	__fi029
+ 1226/ 420 :                            __el029:
+ 1227/ 420 :                            ;		a=*p2;
+ 1228/ 420 : C2 00                      	ld	0(p2)
+ 1229/ 422 :                            ;		if(a==0x3f) {       // XPPC3 は特別処理.
+ 1230/ 422 : 03                         	scl
+ 1231/ 423 : FC 3F                      	cai	0x3f
+ 1232/ 425 : 9C 11                      	jnz	__el030
+ 1233/ 427 :                            ;			sub_p2_128();	// P2 < 0x0080 なら Areg=0
+ 1234/ 427 : (MACRO)                    	call	sub_p2_128
+ 1234/ 427 : 3F                              XPPC  P3
+ 1234/ 428 : 03                              DB    H(SUB_P2_128-1)
+ 1234/ 429 : E7                              DB    L(SUB_P2_128-1)
+ 1235/ 42A :                            ;			if(a!=0) {
+ 1236/ 42A : 98 0C                      	jz	__el031
+ 1237/ 42C :                            ;				a=op2;
+ 1238/ 42C : C1 26                      	ld	op2(P1)
+ 1239/ 42E :                            ;				if(a==0) {
+ 1240/ 42E : 9C 04                      	jnz	__el032
+ 1241/ 430 :                            ;					a=2;goto _ret2; // 2byte命令.
+ 1242/ 430 : C4 02                      	ldi	2
+ 1243/ 432 : 90 08                      	jmp	_ret2
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 29 - 2024年06月19日 11時21分03秒
+
+
+ 1244/ 434 :                            ;				}
+ 1245/ 434 :                            ;				a=3;goto _ret2; // 3byte命令.
+ 1246/ 434 :                            __el032:
+ 1247/ 434 : C4 03                      	ldi	3
+ 1248/ 436 : 90 04                      	jmp	_ret2
+ 1249/ 438 :                            ;			}
+ 1250/ 438 :                            ;		}
+ 1251/ 438 :                            __el031:
+ 1252/ 438 :                            ;		a=1;goto _ret2;
+ 1253/ 438 :                            __el030:
+ 1254/ 438 : C4 01                      	ldi	1
+ 1255/ 43A : 90 00                      	jmp	_ret2
+ 1256/ 43C :                            ;	}
+ 1257/ 43C :                            __fi029:
+ 1258/ 43C :                            ;_ret2:
+ 1259/ 43C :                            _ret2:
+ 1260/ 43C :                            ;	opsize=a;
+ 1261/ 43C : C9 29                      	st	opsize(P1)
+ 1262/ 43E :                            ;	hexdump_acnt();
+ 1263/ 43E : (MACRO)                    	call	hexdump_acnt
+ 1263/ 43E : 3F                              XPPC  P3
+ 1263/ 43F : 04                              DB    H(HEXDUMP_ACNT-1)
+ 1263/ 440 : 42                              DB    L(HEXDUMP_ACNT-1)
+ 1264/ 441 :                            ;}
+ 1265/ 441 : (MACRO)                    	ret
+ 1265/ 441 : 3F                              XPPC  P3
+ 1265/ 442 : 00                              DB    0
+ 1266/ 443 :                            ;
+ 1267/ 443 :                            ;// 逆アセンブラの オペコード HEX Print
+ 1268/ 443 :                            ;hexdump_acnt()
+ 1269/ 443 :                            ;{
+ 1270/ 443 :                            hexdump_acnt:
+ 1271/ 443 :                            ;	cnt2=a;
+ 1272/ 443 : C9 21                      	st	cnt2(P1)
+ 1273/ 445 :                            ;	cnt3=4;
+ 1274/ 445 : C4 04                      	ldi	4
+ 1275/ 447 : C9 22                      	st	cnt3(P1)
+ 1276/ 449 :                            ;	do {
+ 1277/ 449 :                            __do033:
+ 1278/ 449 :                            ;		a=*p2;
+ 1279/ 449 : C2 00                      	ld	0(p2)
+ 1280/ 44B :                            ;		prhex2();
+ 1281/ 44B : (MACRO)                    	call	prhex2
+ 1281/ 44B : 3F                              XPPC  P3
+ 1281/ 44C : 02                              DB    H(PRHEX2-1)
+ 1281/ 44D : E3                              DB    L(PRHEX2-1)
+ 1282/ 44E :                            ;		pr_spc();
+ 1283/ 44E : (MACRO)                    	call	pr_spc
+ 1283/ 44E : 3F                              XPPC  P3
+ 1283/ 44F : 03                              DB    H(PR_SPC-1)
+ 1283/ 450 : 66                              DB    L(PR_SPC-1)
+ 1284/ 451 :                            ;		inc_p2();
+ 1285/ 451 : (MACRO)                    	call	inc_p2
+ 1285/ 451 : 3F                              XPPC  P3
+ 1285/ 452 : 02                              DB    H(INC_P2-1)
+ 1285/ 453 : 64                              DB    L(INC_P2-1)
+ 1286/ 454 :                            ;
+ 1287/ 454 :                            ;		dld(cnt3(p1));
+ 1288/ 454 : B9 22                      	dld	cnt3(p1)
+ 1289/ 456 :                            ;	} while(--cnt2);
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 30 - 2024年06月19日 11時21分03秒
+
+
+ 1290/ 456 : B9 21                      	dld	cnt2(P1)
+ 1291/ 458 : 9C EF                      	jnz	__do033
+ 1292/ 45A :                            __od033:
+ 1293/ 45A :                            ;
+ 1294/ 45A :                            ;	do {
+ 1295/ 45A :                            __do034:
+ 1296/ 45A :                            ;		pr_spc();
+ 1297/ 45A : (MACRO)                    	call	pr_spc
+ 1297/ 45A : 3F                              XPPC  P3
+ 1297/ 45B : 03                              DB    H(PR_SPC-1)
+ 1297/ 45C : 66                              DB    L(PR_SPC-1)
+ 1298/ 45D :                            ;		pr_spc();
+ 1299/ 45D : (MACRO)                    	call	pr_spc
+ 1299/ 45D : 3F                              XPPC  P3
+ 1299/ 45E : 03                              DB    H(PR_SPC-1)
+ 1299/ 45F : 66                              DB    L(PR_SPC-1)
+ 1300/ 460 :                            ;		pr_spc();
+ 1301/ 460 : (MACRO)                    	call	pr_spc
+ 1301/ 460 : 3F                              XPPC  P3
+ 1301/ 461 : 03                              DB    H(PR_SPC-1)
+ 1301/ 462 : 66                              DB    L(PR_SPC-1)
+ 1302/ 463 :                            ;	} while(--cnt3);
+ 1303/ 463 : B9 22                      	dld	cnt3(P1)
+ 1304/ 465 : 9C F3                      	jnz	__do034
+ 1305/ 467 :                            __od034:
+ 1306/ 467 :                            ;
+ 1307/ 467 :                            ;	// オペコード名を検索して表示.
+ 1308/ 467 :                            ;	a=op1;if(a==0x3f) { // XPPC3だけ特別.
+ 1309/ 467 : C1 25                      	ld	op1(P1)
+ 1310/ 469 : 03                         	scl
+ 1311/ 46A : FC 3F                      	cai	0x3f
+ 1312/ 46C : 9C 14                      	jnz	__el035
+ 1313/ 46E :                            ;		a=opsize;e=a;
+ 1314/ 46E : C1 29                      	ld	opsize(P1)
+ 1315/ 470 : 01                         	xae
+ 1316/ 471 : 40                         	lde
+ 1317/ 472 :                            ;		if(e==3) {      // CALL 判定.
+ 1318/ 472 : 40                         	lde
+ 1319/ 473 : 03                         	scl
+ 1320/ 474 : FC 03                      	cai	3
+ 1321/ 476 : 9C 02                      	jnz	__el036
+ 1322/ 478 :                            ;			goto op_callret;
+ 1323/ 478 : 90 39                      	jmp	op_callret
+ 1324/ 47A :                            ;		}
+ 1325/ 47A :                            ;		if(e==2) {      // RET 判定.
+ 1326/ 47A :                            __el036:
+ 1327/ 47A : 40                         	lde
+ 1328/ 47B : 03                         	scl
+ 1329/ 47C : FC 02                      	cai	2
+ 1330/ 47E : 9C 02                      	jnz	__el037
+ 1331/ 480 :                            ;			goto op_callret;
+ 1332/ 480 : 90 31                      	jmp	op_callret
+ 1333/ 482 :                            ;		}
+ 1334/ 482 :                            ;	}
+ 1335/ 482 :                            __el037:
+ 1336/ 482 :                            ;
+ 1337/ 482 :                            ;	// XPPC3以外のすべて.
+ 1338/ 482 :                            ;	push(p2);
+ 1339/ 482 :                            __el035:
+ 1340/ 482 : (MACRO)                    	push	p2
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 31 - 2024年06月19日 11時21分03秒
+
+
+ 1340/ 482 : 01                                  XAE
+ 1340/ 483 : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+ 1340/ 485 : 01                                  XAE
+ 1340/ 486 : 36                                  XPAH   P2
+> > > moni2.asm(1340) PUSH(5):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1340/ 487 : C9 80                               ST     -128(P1)
+ 1340/ 489 : 36                                  XPAH   P2
+ 1340/ 48A : 01                                  XAE
+ 1340/ 48B : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+ 1340/ 48D : 01                                  XAE
+ 1340/ 48E : 32                                  XPAL   P2
+> > > moni2.asm(1340) PUSH(11):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1340/ 48F : C9 80                               ST     -128(P1)
+ 1340/ 491 : 32                                  XPAL   P2
+ 1341/ 492 :                            ;	op_find();
+ 1342/ 492 : (MACRO)                    	call	op_find
+ 1342/ 492 : 3F                              XPPC  P3
+ 1342/ 493 : 05                              DB    H(OP_FIND-1)
+ 1342/ 494 : B8                              DB    L(OP_FIND-1)
+ 1343/ 495 :                            ;	pop(p2);
+ 1344/ 495 : (MACRO)                    	pop	p2
+ 1344/ 495 : 01                                  XAE
+ 1344/ 496 : C1 00                               LD     SP(P1)     ; Ereg= SP
+ 1344/ 498 : 01                                  XAE
+ 1344/ 499 : 32                                  XPAL   P2
+> > > moni2.asm(1344) POP(5):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1344/ 49A : C1 80                               LD     -128(P1)
+ 1344/ 49C : 32                                  XPAL   P2
+ 1344/ 49D : 01                                  XAE
+ 1344/ 49E : A9 00                               ILD     SP(P1)     ; Ereg = ++SP
+ 1344/ 4A0 : 01                                  XAE
+ 1344/ 4A1 : 36                                  XPAH   P2
+> > > moni2.asm(1344) POP(11):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1344/ 4A2 : C1 80                               LD     -128(P1)
+ 1344/ 4A4 : 36                                  XPAH   P2
+ 1344/ 4A5 : 01                                  XAE
+ 1344/ 4A6 : A9 00                               ILD     SP(P1)     ; ++SP
+ 1344/ 4A8 : 01                                  XAE
+ 1345/ 4A9 :                            ;}
+ 1346/ 4A9 : (MACRO)                    	ret
+ 1346/ 4A9 : 3F                              XPPC  P3
+ 1346/ 4AA : 00                              DB    0
+ 1347/ 4AB :                            ;
+ 1348/ 4AB :                            ;inc_op2_op3()
+ 1349/ 4AB :                            ;{
+ 1350/ 4AB :                            inc_op2_op3:
+ 1351/ 4AB :                            ;	ild(op3(p1))
+ 1352/ 4AB : A9 27                      	ild	op3(p1)
+ 1353/ 4AD :                            ;	if(a==0) {
+ 1354/ 4AD : 9C 02                      	jnz	__el038
+ 1355/ 4AF :                            ;		ild(op2(p1))
+ 1356/ 4AF : A9 26                      	ild	op2(p1)
+ 1357/ 4B1 :                            ;	}
+ 1358/ 4B1 :                            ;}
+ 1359/ 4B1 :                            __el038:
+ 1360/ 4B1 : (MACRO)                    	ret
+ 1360/ 4B1 : 3F                              XPPC  P3
+ 1360/ 4B2 : 00                              DB    0
+ 1361/ 4B3 :                            ;
+ 1362/ 4B3 :                            ;op_callret()
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 32 - 2024年06月19日 11時21分03秒
+
+
+ 1363/ 4B3 :                            ;{
+ 1364/ 4B3 :                            op_callret:
+ 1365/ 4B3 :                            ;	push(p2);
+ 1366/ 4B3 : (MACRO)                    	push	p2
+ 1366/ 4B3 : 01                                  XAE
+ 1366/ 4B4 : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+ 1366/ 4B6 : 01                                  XAE
+ 1366/ 4B7 : 36                                  XPAH   P2
+> > > moni2.asm(1366) PUSH(5):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1366/ 4B8 : C9 80                               ST     -128(P1)
+ 1366/ 4BA : 36                                  XPAH   P2
+ 1366/ 4BB : 01                                  XAE
+ 1366/ 4BC : B9 00                               DLD    SP(P1)     ; Ereg= --SP
+ 1366/ 4BE : 01                                  XAE
+ 1366/ 4BF : 32                                  XPAL   P2
+> > > moni2.asm(1366) PUSH(11):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1366/ 4C0 : C9 80                               ST     -128(P1)
+ 1366/ 4C2 : 32                                  XPAL   P2
+ 1367/ 4C3 :                            ;	a=opsize;
+ 1368/ 4C3 : C1 29                      	ld	opsize(P1)
+ 1369/ 4C5 :                            ;	if(a==3) {
+ 1370/ 4C5 : 03                         	scl
+ 1371/ 4C6 : FC 03                      	cai	3
+ 1372/ 4C8 : 9C 1A                      	jnz	__el039
+ 1373/ 4CA :                            ;		p2=#mn_call;
+ 1374/ 4CA : (MACRO)                    	lea	p2,mn_call
+ 1374/ 4CA : 32                                  XPAL   P2
+ 1374/ 4CB : C4 05                               LDI    L(MN_CALL)
+ 1374/ 4CD : 32                                  XPAL   P2
+ 1374/ 4CE : 36                                  XPAH   P2
+ 1374/ 4CF : C4 05                               LDI    H(MN_CALL)
+ 1374/ 4D1 : 36                                  XPAH   P2
+ 1375/ 4D2 :                            ;		op_print();
+ 1376/ 4D2 : (MACRO)                    	call	op_print
+ 1376/ 4D2 : 3F                              XPPC  P3
+ 1376/ 4D3 : 05                              DB    H(OP_PRINT-1)
+ 1376/ 4D4 : E1                              DB    L(OP_PRINT-1)
+ 1377/ 4D5 :                            ;		inc_op2_op3();
+ 1378/ 4D5 : (MACRO)                    	call	inc_op2_op3
+ 1378/ 4D5 : 3F                              XPPC  P3
+ 1378/ 4D6 : 04                              DB    H(INC_OP2_OP3-1)
+ 1378/ 4D7 : AA                              DB    L(INC_OP2_OP3-1)
+ 1379/ 4D8 :                            ;		a=op2;prhex2();
+ 1380/ 4D8 : C1 26                      	ld	op2(P1)
+ 1381/ 4DA : (MACRO)                    	call	prhex2
+ 1381/ 4DA : 3F                              XPPC  P3
+ 1381/ 4DB : 02                              DB    H(PRHEX2-1)
+ 1381/ 4DC : E3                              DB    L(PRHEX2-1)
+ 1382/ 4DD :                            ;		a=op3;prhex2();
+ 1383/ 4DD : C1 27                      	ld	op3(P1)
+ 1384/ 4DF : (MACRO)                    	call	prhex2
+ 1384/ 4DF : 3F                              XPPC  P3
+ 1384/ 4E0 : 02                              DB    H(PRHEX2-1)
+ 1384/ 4E1 : E3                              DB    L(PRHEX2-1)
+ 1385/ 4E2 :                            ;	}else{
+ 1386/ 4E2 : 90 0B                      	jmp	__fi039
+ 1387/ 4E4 :                            __el039:
+ 1388/ 4E4 :                            ;		p2=#mn_ret;
+ 1389/ 4E4 : (MACRO)                    	lea	p2,mn_ret
+ 1389/ 4E4 : 32                                  XPAL   P2
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 33 - 2024年06月19日 11時21分03秒
+
+
+ 1389/ 4E5 : C4 09                               LDI    L(MN_RET)
+ 1389/ 4E7 : 32                                  XPAL   P2
+ 1389/ 4E8 : 36                                  XPAH   P2
+ 1389/ 4E9 : C4 05                               LDI    H(MN_RET)
+ 1389/ 4EB : 36                                  XPAH   P2
+ 1390/ 4EC :                            ;		op_print();
+ 1391/ 4EC : (MACRO)                    	call	op_print
+ 1391/ 4EC : 3F                              XPPC  P3
+ 1391/ 4ED : 05                              DB    H(OP_PRINT-1)
+ 1391/ 4EE : E1                              DB    L(OP_PRINT-1)
+ 1392/ 4EF :                            ;	}
+ 1393/ 4EF :                            __fi039:
+ 1394/ 4EF :                            ;	pop(p2);
+ 1395/ 4EF : (MACRO)                    	pop	p2
+ 1395/ 4EF : 01                                  XAE
+ 1395/ 4F0 : C1 00                               LD     SP(P1)     ; Ereg= SP
+ 1395/ 4F2 : 01                                  XAE
+ 1395/ 4F3 : 32                                  XPAL   P2
+> > > moni2.asm(1395) POP(5):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1395/ 4F4 : C1 80                               LD     -128(P1)
+ 1395/ 4F6 : 32                                  XPAL   P2
+ 1395/ 4F7 : 01                                  XAE
+ 1395/ 4F8 : A9 00                               ILD     SP(P1)     ; Ereg = ++SP
+ 1395/ 4FA : 01                                  XAE
+ 1395/ 4FB : 36                                  XPAH   P2
+> > > moni2.asm(1395) POP(11):17: warning: numeric value -128 means usage of E register's content (use literal 'E' to avoid this warning)
+ 1395/ 4FC : C1 80                               LD     -128(P1)
+ 1395/ 4FE : 36                                  XPAH   P2
+ 1395/ 4FF : 01                                  XAE
+ 1395/ 500 : A9 00                               ILD     SP(P1)     ; ++SP
+ 1395/ 502 : 01                                  XAE
+ 1396/ 503 :                            ;}
+ 1397/ 503 : (MACRO)                    	ret
+ 1397/ 503 : 3F                              XPPC  P3
+ 1397/ 504 : 00                              DB    0
+ 1398/ 505 :                            ;
+ 1399/ 505 :                            ;mn_call:
+ 1400/ 505 :                            mn_call:
+ 1401/ 505 :                            ;	db("CALL");
+ 1402/ 505 : 43 41 4C 4C                	db	"CALL"
+ 1403/ 509 :                            ;mn_ret:
+ 1404/ 509 :                            mn_ret:
+ 1405/ 509 :                            ;	db("RET ");
+ 1406/ 509 : 52 45 54 20                	db	"RET "
+ 1407/ 50D :                            ;
+ 1408/ 50D :                            ;//
+ 1409/ 50D :                            ;// 逆アセンブラの オペコード HEX Print
+ 1410/ 50D :                            ;//   
+ 1411/ 50D :                            ;param_print()
+ 1412/ 50D :                            ;{
+ 1413/ 50D :                            param_print:
+ 1414/ 50D :                            ;	ld 1(p2);  // OPTable のMaskフィールド.
+ 1415/ 50D : C2 01                      	ld	1(p2)
+ 1416/ 50F :                            ;	a^=0xff;   // ビット反転させる
+ 1417/ 50F : E4 FF                      	xri	0xff
+ 1418/ 511 :                            ;	op1mask=a;
+ 1419/ 511 : C9 28                      	st	op1mask(P1)
+ 1420/ 513 :                            ;
+ 1421/ 513 :                            ;	if(opsize==2) {
+ 1422/ 513 : C1 29                      	ld	opsize(P1)
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 34 - 2024年06月19日 11時21分03秒
+
+
+ 1423/ 515 : 03                         	scl
+ 1424/ 516 : FC 02                      	cai	2
+ 1425/ 518 : 9C 05                      	jnz	__el040
+ 1426/ 51A :                            ;		param_ldop();
+ 1427/ 51A : (MACRO)                    	call	param_ldop
+ 1427/ 51A : 3F                              XPPC  P3
+ 1427/ 51B : 05                              DB    H(PARAM_LDOP-1)
+ 1427/ 51C : 76                              DB    L(PARAM_LDOP-1)
+ 1428/ 51D :                            ;		return;
+ 1429/ 51D : (MACRO)                    	ret
+ 1429/ 51D : 3F                              XPPC  P3
+ 1429/ 51E : 00                              DB    0
+ 1430/ 51F :                            ;	}
+ 1431/ 51F :                            ;
+ 1432/ 51F :                            ;	a=op1mask;
+ 1433/ 51F :                            __el040:
+ 1434/ 51F : C1 28                      	ld	op1mask(P1)
+ 1435/ 521 :                            ;	if(a!=0) { // Maskフィールドが 0xff (反転させると0) 以外なら,,,
+ 1436/ 521 : 98 07                      	jz	__el041
+ 1437/ 523 :                            ;		a=op1mask;a&=op1;prhex2();
+ 1438/ 523 : C1 28                      	ld	op1mask(P1)
+ 1439/ 525 : D1 25                      	and	op1(P1)
+ 1440/ 527 : (MACRO)                    	call	prhex2
+ 1440/ 527 : 3F                              XPPC  P3
+ 1440/ 528 : 02                              DB    H(PRHEX2-1)
+ 1440/ 529 : E3                              DB    L(PRHEX2-1)
+ 1441/ 52A :                            ;	}
+ 1442/ 52A :                            ;}
+ 1443/ 52A :                            __el041:
+ 1444/ 52A : (MACRO)                    	ret
+ 1444/ 52A : 3F                              XPPC  P3
+ 1444/ 52B : 00                              DB    0
+ 1445/ 52C :                            ;
+ 1446/ 52C :                            ;// ea2:1 = pcl:pch + (sign extend)op2 + 2
+ 1447/ 52C :                            ;param_addpc_ea1()
+ 1448/ 52C :                            ;{
+ 1449/ 52C :                            param_addpc_ea1:
+ 1450/ 52C :                            ;	ea1=0;
+ 1451/ 52C : C4 00                      	ldi	0
+ 1452/ 52E : C9 23                      	st	ea1(P1)
+ 1453/ 530 :                            ;	a=op2;a&=0x80;
+ 1454/ 530 : C1 26                      	ld	op2(P1)
+ 1455/ 532 : D4 80                      	ani	0x80
+ 1456/ 534 :                            ;	if(a!=0) ea1=0xff;
+ 1457/ 534 : 98 04                      	jz	__el042
+ 1458/ 536 : C4 FF                      	ldi	0xff
+ 1459/ 538 : C9 23                      	st	ea1(P1)
+ 1460/ 53A :                            ;
+ 1461/ 53A :                            ;	ccl;
+ 1462/ 53A :                            __el042:
+ 1463/ 53A : 02                         	ccl
+ 1464/ 53B :                            ;	a=pcl;add op2(p1);ea2=a;
+ 1465/ 53B : C1 2A                      	ld	pcl(P1)
+ 1466/ 53D : F1 26                      	add	op2(p1)
+ 1467/ 53F : C9 24                      	st	ea2(P1)
+ 1468/ 541 :                            ;	a=pch;add ea1(p1);ea1=a;
+ 1469/ 541 : C1 2B                      	ld	pch(P1)
+ 1470/ 543 : F1 23                      	add	ea1(p1)
+ 1471/ 545 : C9 23                      	st	ea1(P1)
+ 1472/ 547 :                            ;
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 35 - 2024年06月19日 11時21分03秒
+
+
+ 1473/ 547 :                            ;	ccl;
+ 1474/ 547 : 02                         	ccl
+ 1475/ 548 :                            ;	a=ea2;adi(2);ea2=a;
+ 1476/ 548 : C1 24                      	ld	ea2(P1)
+ 1477/ 54A : F4 02                      	adi	2
+ 1478/ 54C : C9 24                      	st	ea2(P1)
+ 1479/ 54E :                            ;	a=ea1;adi(0);ea1=a;
+ 1480/ 54E : C1 23                      	ld	ea1(P1)
+ 1481/ 550 : F4 00                      	adi	0
+ 1482/ 552 : C9 23                      	st	ea1(P1)
+ 1483/ 554 :                            ;}
+ 1484/ 554 : (MACRO)                    	ret
+ 1484/ 554 : 3F                              XPPC  P3
+ 1484/ 555 : 00                              DB    0
+ 1485/ 556 :                            ;param_jmpop()
+ 1486/ 556 :                            ;{
+ 1487/ 556 :                            param_jmpop:
+ 1488/ 556 :                            ;	param_addpc_ea1();
+ 1489/ 556 : (MACRO)                    	call	param_addpc_ea1
+ 1489/ 556 : 3F                              XPPC  P3
+ 1489/ 557 : 05                              DB    H(PARAM_ADDPC_EA1-1)
+ 1489/ 558 : 2B                              DB    L(PARAM_ADDPC_EA1-1)
+ 1490/ 559 :                            ;	prhex4ea1();
+ 1491/ 559 : (MACRO)                    	call	prhex4ea1
+ 1491/ 559 : 3F                              XPPC  P3
+ 1491/ 55A : 02                              DB    H(PRHEX4EA1-1)
+ 1491/ 55B : D7                              DB    L(PRHEX4EA1-1)
+ 1492/ 55C :                            ;}
+ 1493/ 55C : (MACRO)                    	ret
+ 1493/ 55C : 3F                              XPPC  P3
+ 1493/ 55D : 00                              DB    0
+ 1494/ 55E :                            ;
+ 1495/ 55E :                            ;param_pcrel:
+ 1496/ 55E :                            param_pcrel:
+ 1497/ 55E :                            ;	a='C';e=a;
+ 1498/ 55E : C4 43                      	ldi	'C'
+ 1499/ 560 : 01                         	xae
+ 1500/ 561 : 40                         	lde
+ 1501/ 562 :                            ;param_ptrel()
+ 1502/ 562 :                            ;{
+ 1503/ 562 :                            param_ptrel:
+ 1504/ 562 :                            ;	a='(';putc();
+ 1505/ 562 : C4 28                      	ldi	'('
+ 1506/ 564 : (MACRO)                    	call	putc
+ 1506/ 564 : 3F                              XPPC  P3
+ 1506/ 565 : 01                              DB    H(PUTC-1)
+ 1506/ 566 : 40                              DB    L(PUTC-1)
+ 1507/ 567 :                            ;	a='P';putc();
+ 1508/ 567 : C4 50                      	ldi	'P'
+ 1509/ 569 : (MACRO)                    	call	putc
+ 1509/ 569 : 3F                              XPPC  P3
+ 1509/ 56A : 01                              DB    H(PUTC-1)
+ 1509/ 56B : 40                              DB    L(PUTC-1)
+ 1510/ 56C :                            ;	a=e  ;putc();
+ 1511/ 56C : 40                         	lde
+ 1512/ 56D : (MACRO)                    	call	putc
+ 1512/ 56D : 3F                              XPPC  P3
+ 1512/ 56E : 01                              DB    H(PUTC-1)
+ 1512/ 56F : 40                              DB    L(PUTC-1)
+ 1513/ 570 :                            ;	a=')';putc();
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 36 - 2024年06月19日 11時21分03秒
+
+
+ 1514/ 570 : C4 29                      	ldi	')'
+ 1515/ 572 : (MACRO)                    	call	putc
+ 1515/ 572 : 3F                              XPPC  P3
+ 1515/ 573 : 01                              DB    H(PUTC-1)
+ 1515/ 574 : 40                              DB    L(PUTC-1)
+ 1516/ 575 :                            ;}
+ 1517/ 575 : (MACRO)                    	ret
+ 1517/ 575 : 3F                              XPPC  P3
+ 1517/ 576 : 00                              DB    0
+ 1518/ 577 :                            ;
+ 1519/ 577 :                            ;param_ldop()
+ 1520/ 577 :                            ;{
+ 1521/ 577 :                            param_ldop:
+ 1522/ 577 :                            ;	a=op1;a&=0xf0;
+ 1523/ 577 : C1 25                      	ld	op1(P1)
+ 1524/ 579 : D4 F0                      	ani	0xf0
+ 1525/ 57B :                            ;	if(a==0x90) {  // JMP
+ 1526/ 57B : 03                         	scl
+ 1527/ 57C : FC 90                      	cai	0x90
+ 1528/ 57E : 9C 02                      	jnz	__el043
+ 1529/ 580 :                            ;		goto param_jmpop;	
+ 1530/ 580 : 90 D4                      	jmp	param_jmpop
+ 1531/ 582 :                            ;	}
+ 1532/ 582 :                            ;
+ 1533/ 582 :                            ;	a=op2;prhex2();
+ 1534/ 582 :                            __el043:
+ 1535/ 582 : C1 26                      	ld	op2(P1)
+ 1536/ 584 : (MACRO)                    	call	prhex2
+ 1536/ 584 : 3F                              XPPC  P3
+ 1536/ 585 : 02                              DB    H(PRHEX2-1)
+ 1536/ 586 : E3                              DB    L(PRHEX2-1)
+ 1537/ 587 :                            ;
+ 1538/ 587 :                            ;	a=op1;a&=0xc0;
+ 1539/ 587 : C1 25                      	ld	op1(P1)
+ 1540/ 589 : D4 C0                      	ani	0xc0
+ 1541/ 58B :                            ;	if(a==0xc0) { 		// LD,ST,AND,...
+ 1542/ 58B : 03                         	scl
+ 1543/ 58C : FC C0                      	cai	0xc0
+ 1544/ 58E : 9C 27                      	jnz	__el044
+ 1545/ 590 :                            ;		a=op1;a&=7;e=a; // PC,P1,P2,P3,Imm,@P1,@P2,@P3
+ 1546/ 590 : C1 25                      	ld	op1(P1)
+ 1547/ 592 : D4 07                      	ani	7
+ 1548/ 594 : 01                         	xae
+ 1549/ 595 : 40                         	lde
+ 1550/ 596 :                            ;		if(e==4) {return;} // Imm
+ 1551/ 596 : 40                         	lde
+ 1552/ 597 : 03                         	scl
+ 1553/ 598 : FC 04                      	cai	4
+ 1554/ 59A : 9C 02                      	jnz	__el045
+ 1555/ 59C : (MACRO)                    	ret
+ 1555/ 59C : 3F                              XPPC  P3
+ 1555/ 59D : 00                              DB    0
+ 1556/ 59E :                            ;		if(e==0) {goto param_pcrel;}
+ 1557/ 59E :                            __el045:
+ 1558/ 59E : 40                         	lde
+ 1559/ 59F : 9C 02                      	jnz	__el046
+ 1560/ 5A1 : 90 BB                      	jmp	param_pcrel
+ 1561/ 5A3 :                            ;		a=e;a&=4;
+ 1562/ 5A3 :                            __el046:
+ 1563/ 5A3 : 40                         	lde
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 37 - 2024年06月19日 11時21分03秒
+
+
+ 1564/ 5A4 : D4 04                      	ani	4
+ 1565/ 5A6 :                            ;		if(a!=0) {a='@';putc();}
+ 1566/ 5A6 : 98 05                      	jz	__el047
+ 1567/ 5A8 : C4 40                      	ldi	'@'
+ 1568/ 5AA : (MACRO)                    	call	putc
+ 1568/ 5AA : 3F                              XPPC  P3
+ 1568/ 5AB : 01                              DB    H(PUTC-1)
+ 1568/ 5AC : 40                              DB    L(PUTC-1)
+ 1569/ 5AD :                            ;		a=e;a&=3;a+='0';e=a;goto param_ptrel;
+ 1570/ 5AD :                            __el047:
+ 1571/ 5AD : 40                         	lde
+ 1572/ 5AE : D4 03                      	ani	3
+ 1573/ 5B0 : 02                         	ccl
+ 1574/ 5B1 : F4 30                      	adi	'0'
+ 1575/ 5B3 : 01                         	xae
+ 1576/ 5B4 : 40                         	lde
+ 1577/ 5B5 : 90 AB                      	jmp	param_ptrel
+ 1578/ 5B7 :                            ;	}
+ 1579/ 5B7 :                            ;
+ 1580/ 5B7 :                            ;}
+ 1581/ 5B7 :                            __el044:
+ 1582/ 5B7 : (MACRO)                    	ret
+ 1582/ 5B7 : 3F                              XPPC  P3
+ 1582/ 5B8 : 00                              DB    0
+ 1583/ 5B9 :                            ;
+ 1584/ 5B9 :                            ;// オペコード名を検索して表示.
+ 1585/ 5B9 :                            ;op_find()
+ 1586/ 5B9 :                            ;{
+ 1587/ 5B9 :                            op_find:
+ 1588/ 5B9 :                            ;	p2=#mnemonics;
+ 1589/ 5B9 : (MACRO)                    	lea	p2,mnemonics
+ 1589/ 5B9 : 32                                  XPAL   P2
+ 1589/ 5BA : C4 F6                               LDI    L(MNEMONICS)
+ 1589/ 5BC : 32                                  XPAL   P2
+ 1589/ 5BD : 36                                  XPAH   P2
+ 1589/ 5BE : C4 05                               LDI    H(MNEMONICS)
+ 1589/ 5C0 : 36                                  XPAH   P2
+ 1590/ 5C1 :                            ;	do {
+ 1591/ 5C1 :                            __do048:
+ 1592/ 5C1 :                            ;		ld 1(p2);          // OPCODE Mask
+ 1593/ 5C1 : C2 01                      	ld	1(p2)
+ 1594/ 5C3 :                            ;		a&=op1;
+ 1595/ 5C3 : D1 25                      	and	op1(P1)
+ 1596/ 5C5 :                            ;		if(a==*p2) {       // OPCODE マッチングした: HALTはここでマッチングするので、問題ない.
+ 1597/ 5C5 : 03                         	scl
+ 1598/ 5C6 : FA 00                      	cad	0(p2)
+ 1599/ 5C8 : 9C 0C                      	jnz	__el049
+ 1600/ 5CA :                            ;			ld @2(p2);     // OPTable ポインタを2byte進める
+ 1601/ 5CA : C6 02                      	ld	@2(p2)
+ 1602/ 5CC :                            ;			op_print();
+ 1603/ 5CC : (MACRO)                    	call	op_print
+ 1603/ 5CC : 3F                              XPPC  P3
+ 1603/ 5CD : 05                              DB    H(OP_PRINT-1)
+ 1603/ 5CE : E1                              DB    L(OP_PRINT-1)
+ 1604/ 5CF :                            ;			ld @-6(p2);    // OPTable ポインタを6byte戻す.
+ 1605/ 5CF : C6 FA                      	ld	@-6(p2)
+ 1606/ 5D1 :                            ;			param_print(); //
+ 1607/ 5D1 : (MACRO)                    	call	param_print
+ 1607/ 5D1 : 3F                              XPPC  P3
+ 1607/ 5D2 : 05                              DB    H(PARAM_PRINT-1)
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 38 - 2024年06月19日 11時21分03秒
+
+
+ 1607/ 5D3 : 0C                              DB    L(PARAM_PRINT-1)
+ 1608/ 5D4 :                            ;			return;
+ 1609/ 5D4 : (MACRO)                    	ret
+ 1609/ 5D4 : 3F                              XPPC  P3
+ 1609/ 5D5 : 00                              DB    0
+ 1610/ 5D6 :                            ;		}
+ 1611/ 5D6 :                            ;		// OPTable終端 (HALT) に来た.
+ 1612/ 5D6 :                            ;		a=*p2;
+ 1613/ 5D6 :                            __el049:
+ 1614/ 5D6 : C2 00                      	ld	0(p2)
+ 1615/ 5D8 :                            ;		if(a==0) {
+ 1616/ 5D8 : 9C 02                      	jnz	__el050
+ 1617/ 5DA :                            ;			return;
+ 1618/ 5DA : (MACRO)                    	ret
+ 1618/ 5DA : 3F                              XPPC  P3
+ 1618/ 5DB : 00                              DB    0
+ 1619/ 5DC :                            ;		}
+ 1620/ 5DC :                            ;		ld @6(p2);
+ 1621/ 5DC :                            __el050:
+ 1622/ 5DC : C6 06                      	ld	@6(p2)
+ 1623/ 5DE :                            ;	}while(1);
+ 1624/ 5DE : 90 E1                      	jmp	__do048
+ 1625/ 5E0 :                            __od048:
+ 1626/ 5E0 :                            ;}
+ 1627/ 5E0 : (MACRO)                    	ret
+ 1627/ 5E0 : 3F                              XPPC  P3
+ 1627/ 5E1 : 00                              DB    0
+ 1628/ 5E2 :                            ;
+ 1629/ 5E2 :                            ;
+ 1630/ 5E2 :                            ;// オペコード名 4 文字と 空白1文字を表示.
+ 1631/ 5E2 :                            ;op_print()
+ 1632/ 5E2 :                            ;{
+ 1633/ 5E2 :                            op_print:
+ 1634/ 5E2 :                            ;	cnt3=4;
+ 1635/ 5E2 : C4 04                      	ldi	4
+ 1636/ 5E4 : C9 22                      	st	cnt3(P1)
+ 1637/ 5E6 :                            ;	do {
+ 1638/ 5E6 :                            __do051:
+ 1639/ 5E6 :                            ;		a=*p2++;putc();
+ 1640/ 5E6 : C6 01                      	ld	@1(p2)
+ 1641/ 5E8 : (MACRO)                    	call	putc
+ 1641/ 5E8 : 3F                              XPPC  P3
+ 1641/ 5E9 : 01                              DB    H(PUTC-1)
+ 1641/ 5EA : 40                              DB    L(PUTC-1)
+ 1642/ 5EB :                            ;	}while(--cnt3);
+ 1643/ 5EB : B9 22                      	dld	cnt3(P1)
+ 1644/ 5ED : 9C F7                      	jnz	__do051
+ 1645/ 5EF :                            __od051:
+ 1646/ 5EF :                            ;	a=' ';putc();
+ 1647/ 5EF : C4 20                      	ldi	' '
+ 1648/ 5F1 : (MACRO)                    	call	putc
+ 1648/ 5F1 : 3F                              XPPC  P3
+ 1648/ 5F2 : 01                              DB    H(PUTC-1)
+ 1648/ 5F3 : 40                              DB    L(PUTC-1)
+ 1649/ 5F4 :                            ;}
+ 1650/ 5F4 : (MACRO)                    	ret
+ 1650/ 5F4 : 3F                              XPPC  P3
+ 1650/ 5F5 : 00                              DB    0
+ 1651/ 5F6 :                            ;
+ 1652/ 5F6 :                            ;//
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 39 - 2024年06月19日 11時21分03秒
+
+
+ 1653/ 5F6 :                            ;//
+ 1654/ 5F6 :                            ;mnemonics:
+ 1655/ 5F6 :                            mnemonics:
+ 1656/ 5F6 :                            ;	db(0xc4);
+ 1657/ 5F6 : C4                         	db	0xc4
+ 1658/ 5F7 :                            ;	 db(0xff);
+ 1659/ 5F7 : FF                         	db	0xff
+ 1660/ 5F8 :                            ;	 db("LDI ");
+ 1661/ 5F8 : 4C 44 49 20                	db	"LDI "
+ 1662/ 5FC :                            ;	db(0xd4);
+ 1663/ 5FC : D4                         	db	0xd4
+ 1664/ 5FD :                            ;	 db(0xff);
+ 1665/ 5FD : FF                         	db	0xff
+ 1666/ 5FE :                            ;	 db("ANI ");
+ 1667/ 5FE : 41 4E 49 20                	db	"ANI "
+ 1668/ 602 :                            ;	db(0xdc);
+ 1669/ 602 : DC                         	db	0xdc
+ 1670/ 603 :                            ;	 db(0xff);
+ 1671/ 603 : FF                         	db	0xff
+ 1672/ 604 :                            ;	 db("ORI ");
+ 1673/ 604 : 4F 52 49 20                	db	"ORI "
+ 1674/ 608 :                            ;	db(0xe4);
+ 1675/ 608 : E4                         	db	0xe4
+ 1676/ 609 :                            ;	 db(0xff);
+ 1677/ 609 : FF                         	db	0xff
+ 1678/ 60A :                            ;	 db("XRI ");
+ 1679/ 60A : 58 52 49 20                	db	"XRI "
+ 1680/ 60E :                            ;	db(0xec);
+ 1681/ 60E : EC                         	db	0xec
+ 1682/ 60F :                            ;	 db(0xff);
+ 1683/ 60F : FF                         	db	0xff
+ 1684/ 610 :                            ;	 db("DAI ");
+ 1685/ 610 : 44 41 49 20                	db	"DAI "
+ 1686/ 614 :                            ;	db(0xf4);
+ 1687/ 614 : F4                         	db	0xf4
+ 1688/ 615 :                            ;	 db(0xff);
+ 1689/ 615 : FF                         	db	0xff
+ 1690/ 616 :                            ;	 db("ADI ");
+ 1691/ 616 : 41 44 49 20                	db	"ADI "
+ 1692/ 61A :                            ;	db(0xfc);
+ 1693/ 61A : FC                         	db	0xfc
+ 1694/ 61B :                            ;	 db(0xff);
+ 1695/ 61B : FF                         	db	0xff
+ 1696/ 61C :                            ;	 db("CAI ");
+ 1697/ 61C : 43 41 49 20                	db	"CAI "
+ 1698/ 620 :                            ;	db(0xc0);
+ 1699/ 620 : C0                         	db	0xc0
+ 1700/ 621 :                            ;	 db(0xf8);
+ 1701/ 621 : F8                         	db	0xf8
+ 1702/ 622 :                            ;	 db("LD  ");
+ 1703/ 622 : 4C 44 20 20                	db	"LD  "
+ 1704/ 626 :                            ;	db(0xc8);
+ 1705/ 626 : C8                         	db	0xc8
+ 1706/ 627 :                            ;	 db(0xf8);
+ 1707/ 627 : F8                         	db	0xf8
+ 1708/ 628 :                            ;	 db("ST  ");
+ 1709/ 628 : 53 54 20 20                	db	"ST  "
+ 1710/ 62C :                            ;	db(0xd0);
+ 1711/ 62C : D0                         	db	0xd0
+ 1712/ 62D :                            ;	 db(0xf8);
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 40 - 2024年06月19日 11時21分03秒
+
+
+ 1713/ 62D : F8                         	db	0xf8
+ 1714/ 62E :                            ;	 db("AND ");
+ 1715/ 62E : 41 4E 44 20                	db	"AND "
+ 1716/ 632 :                            ;	db(0xd8);
+ 1717/ 632 : D8                         	db	0xd8
+ 1718/ 633 :                            ;	 db(0xf8);
+ 1719/ 633 : F8                         	db	0xf8
+ 1720/ 634 :                            ;	 db("OR  ");
+ 1721/ 634 : 4F 52 20 20                	db	"OR  "
+ 1722/ 638 :                            ;	db(0xe0);
+ 1723/ 638 : E0                         	db	0xe0
+ 1724/ 639 :                            ;	 db(0xf8);
+ 1725/ 639 : F8                         	db	0xf8
+ 1726/ 63A :                            ;	 db("XOR ");
+ 1727/ 63A : 58 4F 52 20                	db	"XOR "
+ 1728/ 63E :                            ;	db(0xe8);
+ 1729/ 63E : E8                         	db	0xe8
+ 1730/ 63F :                            ;	 db(0xf8);
+ 1731/ 63F : F8                         	db	0xf8
+ 1732/ 640 :                            ;	 db("DAD ");
+ 1733/ 640 : 44 41 44 20                	db	"DAD "
+ 1734/ 644 :                            ;	db(0xf0);
+ 1735/ 644 : F0                         	db	0xf0
+ 1736/ 645 :                            ;	 db(0xf8);
+ 1737/ 645 : F8                         	db	0xf8
+ 1738/ 646 :                            ;	 db("ADD ");
+ 1739/ 646 : 41 44 44 20                	db	"ADD "
+ 1740/ 64A :                            ;	db(0xf8);
+ 1741/ 64A : F8                         	db	0xf8
+ 1742/ 64B :                            ;	 db(0xf8);
+ 1743/ 64B : F8                         	db	0xf8
+ 1744/ 64C :                            ;	 db("CAD ");
+ 1745/ 64C : 43 41 44 20                	db	"CAD "
+ 1746/ 650 :                            ;	db(0x90);
+ 1747/ 650 : 90                         	db	0x90
+ 1748/ 651 :                            ;	 db(0xfc);
+ 1749/ 651 : FC                         	db	0xfc
+ 1750/ 652 :                            ;	 db("JMP ");
+ 1751/ 652 : 4A 4D 50 20                	db	"JMP "
+ 1752/ 656 :                            ;	db(0x94);
+ 1753/ 656 : 94                         	db	0x94
+ 1754/ 657 :                            ;	 db(0xfc);
+ 1755/ 657 : FC                         	db	0xfc
+ 1756/ 658 :                            ;	 db("JP  ");
+ 1757/ 658 : 4A 50 20 20                	db	"JP  "
+ 1758/ 65C :                            ;	db(0x98);
+ 1759/ 65C : 98                         	db	0x98
+ 1760/ 65D :                            ;	 db(0xfc);
+ 1761/ 65D : FC                         	db	0xfc
+ 1762/ 65E :                            ;	 db("JZ  ");
+ 1763/ 65E : 4A 5A 20 20                	db	"JZ  "
+ 1764/ 662 :                            ;	db(0x9c);
+ 1765/ 662 : 9C                         	db	0x9c
+ 1766/ 663 :                            ;	 db(0xfc);
+ 1767/ 663 : FC                         	db	0xfc
+ 1768/ 664 :                            ;	 db("JNZ ");
+ 1769/ 664 : 4A 4E 5A 20                	db	"JNZ "
+ 1770/ 668 :                            ;	db(0x08);
+ 1771/ 668 : 08                         	db	0x08
+ 1772/ 669 :                            ;	 db(0xff);
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 41 - 2024年06月19日 11時21分03秒
+
+
+ 1773/ 669 : FF                         	db	0xff
+ 1774/ 66A :                            ;	 db("NOP ");
+ 1775/ 66A : 4E 4F 50 20                	db	"NOP "
+ 1776/ 66E :                            ;	db(0xa8);
+ 1777/ 66E : A8                         	db	0xa8
+ 1778/ 66F :                            ;	 db(0xfc);
+ 1779/ 66F : FC                         	db	0xfc
+ 1780/ 670 :                            ;	 db("ILD ");
+ 1781/ 670 : 49 4C 44 20                	db	"ILD "
+ 1782/ 674 :                            ;	db(0xb8);
+ 1783/ 674 : B8                         	db	0xb8
+ 1784/ 675 :                            ;	 db(0xfc);
+ 1785/ 675 : FC                         	db	0xfc
+ 1786/ 676 :                            ;	 db("DLD ");
+ 1787/ 676 : 44 4C 44 20                	db	"DLD "
+ 1788/ 67A :                            ;	db(0x40);
+ 1789/ 67A : 40                         	db	0x40
+ 1790/ 67B :                            ;	 db(0xff);
+ 1791/ 67B : FF                         	db	0xff
+ 1792/ 67C :                            ;	 db("LDE ");
+ 1793/ 67C : 4C 44 45 20                	db	"LDE "
+ 1794/ 680 :                            ;	db(0x01);
+ 1795/ 680 : 01                         	db	0x01
+ 1796/ 681 :                            ;	 db(0xff);
+ 1797/ 681 : FF                         	db	0xff
+ 1798/ 682 :                            ;	 db("XAE ");
+ 1799/ 682 : 58 41 45 20                	db	"XAE "
+ 1800/ 686 :                            ;	db(0x50);
+ 1801/ 686 : 50                         	db	0x50
+ 1802/ 687 :                            ;	 db(0xff);
+ 1803/ 687 : FF                         	db	0xff
+ 1804/ 688 :                            ;	 db("ANE ");
+ 1805/ 688 : 41 4E 45 20                	db	"ANE "
+ 1806/ 68C :                            ;	db(0x58);
+ 1807/ 68C : 58                         	db	0x58
+ 1808/ 68D :                            ;	 db(0xff);
+ 1809/ 68D : FF                         	db	0xff
+ 1810/ 68E :                            ;	 db("ORE ");
+ 1811/ 68E : 4F 52 45 20                	db	"ORE "
+ 1812/ 692 :                            ;	db(0x60);
+ 1813/ 692 : 60                         	db	0x60
+ 1814/ 693 :                            ;	 db(0xff);
+ 1815/ 693 : FF                         	db	0xff
+ 1816/ 694 :                            ;	 db("XRE ");
+ 1817/ 694 : 58 52 45 20                	db	"XRE "
+ 1818/ 698 :                            ;	db(0x68);
+ 1819/ 698 : 68                         	db	0x68
+ 1820/ 699 :                            ;	 db(0xff);
+ 1821/ 699 : FF                         	db	0xff
+ 1822/ 69A :                            ;	 db("DAE ");
+ 1823/ 69A : 44 41 45 20                	db	"DAE "
+ 1824/ 69E :                            ;	db(0x70);
+ 1825/ 69E : 70                         	db	0x70
+ 1826/ 69F :                            ;	 db(0xff);
+ 1827/ 69F : FF                         	db	0xff
+ 1828/ 6A0 :                            ;	 db("ADE ");
+ 1829/ 6A0 : 41 44 45 20                	db	"ADE "
+ 1830/ 6A4 :                            ;	db(0x78);
+ 1831/ 6A4 : 78                         	db	0x78
+ 1832/ 6A5 :                            ;	 db(0xff);
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 42 - 2024年06月19日 11時21分03秒
+
+
+ 1833/ 6A5 : FF                         	db	0xff
+ 1834/ 6A6 :                            ;	 db("CAE ");
+ 1835/ 6A6 : 43 41 45 20                	db	"CAE "
+ 1836/ 6AA :                            ;	db(0x30);
+ 1837/ 6AA : 30                         	db	0x30
+ 1838/ 6AB :                            ;	 db(0xfc);
+ 1839/ 6AB : FC                         	db	0xfc
+ 1840/ 6AC :                            ;	 db("XPAL");
+ 1841/ 6AC : 58 50 41 4C                	db	"XPAL"
+ 1842/ 6B0 :                            ;	db(0x34);
+ 1843/ 6B0 : 34                         	db	0x34
+ 1844/ 6B1 :                            ;	 db(0xfc);
+ 1845/ 6B1 : FC                         	db	0xfc
+ 1846/ 6B2 :                            ;	 db("XPAH");
+ 1847/ 6B2 : 58 50 41 48                	db	"XPAH"
+ 1848/ 6B6 :                            ;	db(0x3c);
+ 1849/ 6B6 : 3C                         	db	0x3c
+ 1850/ 6B7 :                            ;	 db(0xfc);
+ 1851/ 6B7 : FC                         	db	0xfc
+ 1852/ 6B8 :                            ;	 db("XPPC");
+ 1853/ 6B8 : 58 50 50 43                	db	"XPPC"
+ 1854/ 6BC :                            ;	db(0x19);
+ 1855/ 6BC : 19                         	db	0x19
+ 1856/ 6BD :                            ;	 db(0xff);
+ 1857/ 6BD : FF                         	db	0xff
+ 1858/ 6BE :                            ;	 db("SIO ");
+ 1859/ 6BE : 53 49 4F 20                	db	"SIO "
+ 1860/ 6C2 :                            ;	db(0x1c);
+ 1861/ 6C2 : 1C                         	db	0x1c
+ 1862/ 6C3 :                            ;	 db(0xff);
+ 1863/ 6C3 : FF                         	db	0xff
+ 1864/ 6C4 :                            ;	 db("SR  ");
+ 1865/ 6C4 : 53 52 20 20                	db	"SR  "
+ 1866/ 6C8 :                            ;	db(0x1d);
+ 1867/ 6C8 : 1D                         	db	0x1d
+ 1868/ 6C9 :                            ;	 db(0xff);
+ 1869/ 6C9 : FF                         	db	0xff
+ 1870/ 6CA :                            ;	 db("SRL ");
+ 1871/ 6CA : 53 52 4C 20                	db	"SRL "
+ 1872/ 6CE :                            ;	db(0x1e);
+ 1873/ 6CE : 1E                         	db	0x1e
+ 1874/ 6CF :                            ;	 db(0xff);
+ 1875/ 6CF : FF                         	db	0xff
+ 1876/ 6D0 :                            ;	 db("RR  ");
+ 1877/ 6D0 : 52 52 20 20                	db	"RR  "
+ 1878/ 6D4 :                            ;	db(0x1f);
+ 1879/ 6D4 : 1F                         	db	0x1f
+ 1880/ 6D5 :                            ;	 db(0xff);
+ 1881/ 6D5 : FF                         	db	0xff
+ 1882/ 6D6 :                            ;	 db("RRL ");
+ 1883/ 6D6 : 52 52 4C 20                	db	"RRL "
+ 1884/ 6DA :                            ;	db(0x02);
+ 1885/ 6DA : 02                         	db	0x02
+ 1886/ 6DB :                            ;	 db(0xff);
+ 1887/ 6DB : FF                         	db	0xff
+ 1888/ 6DC :                            ;	 db("CCL ");
+ 1889/ 6DC : 43 43 4C 20                	db	"CCL "
+ 1890/ 6E0 :                            ;	db(0x03);
+ 1891/ 6E0 : 03                         	db	0x03
+ 1892/ 6E1 :                            ;	 db(0xff);
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 43 - 2024年06月19日 11時21分03秒
+
+
+ 1893/ 6E1 : FF                         	db	0xff
+ 1894/ 6E2 :                            ;	 db("SCL ");
+ 1895/ 6E2 : 53 43 4C 20                	db	"SCL "
+ 1896/ 6E6 :                            ;	db(0x05);
+ 1897/ 6E6 : 05                         	db	0x05
+ 1898/ 6E7 :                            ;	 db(0xff);
+ 1899/ 6E7 : FF                         	db	0xff
+ 1900/ 6E8 :                            ;	 db("IEN ");
+ 1901/ 6E8 : 49 45 4E 20                	db	"IEN "
+ 1902/ 6EC :                            ;	db(0x04);
+ 1903/ 6EC : 04                         	db	0x04
+ 1904/ 6ED :                            ;	 db(0xff);
+ 1905/ 6ED : FF                         	db	0xff
+ 1906/ 6EE :                            ;	 db("DINT");
+ 1907/ 6EE : 44 49 4E 54                	db	"DINT"
+ 1908/ 6F2 :                            ;	db(0x06);
+ 1909/ 6F2 : 06                         	db	0x06
+ 1910/ 6F3 :                            ;	 db(0xff);
+ 1911/ 6F3 : FF                         	db	0xff
+ 1912/ 6F4 :                            ;	 db("CSA ");
+ 1913/ 6F4 : 43 53 41 20                	db	"CSA "
+ 1914/ 6F8 :                            ;	db(0x07);
+ 1915/ 6F8 : 07                         	db	0x07
+ 1916/ 6F9 :                            ;	 db(0xff);
+ 1917/ 6F9 : FF                         	db	0xff
+ 1918/ 6FA :                            ;	 db("CAS ");
+ 1919/ 6FA : 43 41 53 20                	db	"CAS "
+ 1920/ 6FE :                            ;	db(0x8f);
+ 1921/ 6FE : 8F                         	db	0x8f
+ 1922/ 6FF :                            ;	 db(0xff);
+ 1923/ 6FF : FF                         	db	0xff
+ 1924/ 700 :                            ;	 db("DLY ");
+ 1925/ 700 : 44 4C 59 20                	db	"DLY "
+ 1926/ 704 :                            ;	db(0x20);
+ 1927/ 704 : 20                         	db	0x20
+ 1928/ 705 :                            ;	 db(0xff);
+ 1929/ 705 : FF                         	db	0xff
+ 1930/ 706 :                            ;	 db("PUTC");
+ 1931/ 706 : 50 55 54 43                	db	"PUTC"
+ 1932/ 70A :                            ;	db(0x21);
+ 1933/ 70A : 21                         	db	0x21
+ 1934/ 70B :                            ;	 db(0xff);
+ 1935/ 70B : FF                         	db	0xff
+ 1936/ 70C :                            ;	 db("GETC");
+ 1937/ 70C : 47 45 54 43                	db	"GETC"
+ 1938/ 710 :                            ;	db(0x00);
+ 1939/ 710 : 00                         	db	0x00
+ 1940/ 711 :                            ;	 db(0xff);
+ 1941/ 711 : FF                         	db	0xff
+ 1942/ 712 :                            ;	 db("HALT");
+ 1943/ 712 : 48 41 4C 54                	db	"HALT"
+ 1944/ 716 :                            ;//----------------
+ 1945/ 716 :                            ;	db(0x00);
+ 1946/ 716 : 00                         	db	0x00
+ 1947/ 717 :                            ;	 db(0x00);
+ 1948/ 717 : 00                         	db	0x00
+ 1949/ 718 :                            ;	 db(0x00);
+ 1950/ 718 : 00                         	db	0x00
+ 1951/ 719 :                            ;//
+ 1952/ 719 :                            ;//
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 44 - 2024年06月19日 11時21分03秒
+
+
+ 1953/ 719 :                            ;
+ 1954/ 719 :                            ;
+ 1955/ 719 :                            
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 45 - 2024年06月19日 11時21分03秒
+
+
+  Symbol Table (* = unused):
+  --------------------------
+
+*ARCHITECTURE :                                      "x86_64-unknown-linux" - |
+ ASAV :                           2 - |  ASCDUMP1 :                     215 C |
+ ASCDUMP_16 :                   1CF C |  ASCDUMP_8 :                    206 C |
+*BIGENDIAN :                      0 - | *CASESENSITIVE :                  0 - |
+ CNT1 :                          20 - |  CNT2 :                          21 - |
+ CNT3 :                          22 - | *CONSTPI :        3.141592653589793 - |
+*DATE :             "2024\-027\-071\-07606\-026\-100\-12019\-026\-105\-091" - |
+ DISASM :                       3A0 C |  DISASM_1 :                     3CD C |
+ DISASM_11 :                    402 C |  EA1 :                           23 - |
+ EA2 :                           24 - |  ESAV :                           1 - |
+ EXIT :                         144 C | *FALSE :                          0 - |
+ GETC :                         13E C |  GETS :                         37A C |
+*HAS64 :                          1 - |  HELP_MSG :                      16 C |
+ HEXDUMP_ACNT :                 443 C |  INBUF :                       FE00 - |
+ INC_OP2_OP3 :                  4AB C |  INC_P2 :                       265 C |
+ LC :                           24C C | *LISTON :                         1 - |
+*MACEXP :                         7 - |  MAIN :                          B0 C |
+ MDUMP :                        270 C |  MDUMP_16 :                     285 C |
+ MDUMP_8 :                      2BE C |  MNEMONICS :                    5F6 C |
+ MN_CALL :                      505 C |  MN_RET :                       509 C |
+*MOMCPU :                         0 - | *MOMCPUNAME :               "SC/MP" - |
+ MSG1 :                          5A C | *NESTMAX :                      100 - |
+ OP1 :                           25 - |  OP1MASK :                       28 - |
+ OP2 :                           26 - |  OP3 :                           27 - |
+ OPSIZE :                        29 - |  OP_CALLRET :                   4B3 C |
+ OP_FIND :                      5B9 C |  OP_PRINT :                     5E2 C |
+ P4 :                            10 - |  P4MUL16 :                      156 C |
+ P5 :                            12 - | *P6 :                            14 - |
+*P7 :                            16 - |  PARAM_ADDPC_EA1 :              52C C |
+ PARAM_JMPOP :                  556 C |  PARAM_LDOP :                   577 C |
+ PARAM_PCREL :                  55E C |  PARAM_PRINT :                  50D C |
+ PARAM_PTREL :                  562 C |  PCH :                           2B - |
+ PCL :                           2A - |  PRHEX1 :                       320 C |
+ PRHEX2 :                       2E4 C |  PRHEX4 :                       2D3 C |
+ PRHEX4EA1 :                    2D8 C |  PR_SPC :                       367 C |
+ PUTC :                         141 C |  PUTS :                         395 C |
+ PUT_CRLF :                     36E C | *R1 :                             8 - |
+*R2 :                             A - | *R3 :                             C - |
+ R4 :                             E - |  READHEX :                      16D C |
+ READHEX1 :                     19E C | *RELAXED :                        0 - |
+ SP :                             0 - |  SP_SKIP :                      147 C |
+ SUB_P2_128 :                   3E8 C | *SYSCALL :                       79 C |
+ SYSCALL_RET0 :                  73 C |  SYSCALL_RET1 :                  78 C |
+ SYS_A :                          3 - |  SYS_E :                          4 - |
+ SYS_HI :                         5 - |  SYS_LO :                         6 - |
+ SYS_RET :                       A0 C |
+*TIME :               "11\-026\-103\-12621\-027\-120\-12203\-025\-089\-110" - |
+*TRUE :                           1 - | *UC :                           233 C |
+*VERSION :                     142F - |  _OK1 :                         3FE C |
+ _RET2 :                        43C C |  __DO007 :                      15A C |
+ __DO014 :                      20A C |  __DO021 :                      274 C |
+ __DO022 :                      2C2 C |  __DO024 :                      37A C |
+ __DO025 :                      395 C |  __DO027 :                      3BC C |
+ __DO033 :                      449 C |  __DO034 :                      45A C |
+ __DO048 :                      5C1 C |  __DO051 :                      5E6 C |
+ __EL001 :                       F6 C |  __EL002 :                      101 C |
+ __EL003 :                      124 C |  __EL004 :                      117 C |
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 46 - 2024年06月19日 11時21分03秒
+
+
+ __EL005 :                      12C C |  __EL009 :                      196 C |
+ __EL010 :                      1B7 C |  __EL011 :                      1B7 C |
+ __EL012 :                      1CB C |  __EL013 :                      1CB C |
+ __EL015 :                      221 C |  __EL016 :                      22D C |
+ __EL017 :                      249 C |  __EL018 :                      249 C |
+ __EL019 :                      262 C |  __EL020 :                      262 C |
+ __EL023 :                      348 C |  __EL026 :                      3B0 C |
+ __EL028 :                      3F2 C |  __EL029 :                      420 C |
+ __EL030 :                      438 C |  __EL031 :                      438 C |
+ __EL032 :                      434 C |  __EL035 :                      482 C |
+ __EL036 :                      47A C |  __EL037 :                      482 C |
+ __EL038 :                      4B1 C |  __EL039 :                      4E4 C |
+ __EL040 :                      51F C |  __EL041 :                      52A C |
+ __EL042 :                      53A C |  __EL043 :                      582 C |
+ __EL044 :                      5B7 C |  __EL045 :                      59E C |
+ __EL046 :                      5A3 C |  __EL047 :                      5AD C |
+ __EL049 :                      5D6 C |  __EL050 :                      5DC C |
+*__EW000 :                      139 C |  __EW006 :                      154 C |
+*__EW008 :                      19C C |  __FI002 :                      137 C |
+ __FI003 :                      137 C |  __FI005 :                      137 C |
+ __FI009 :                      19A C |  __FI023 :                      349 C |
+ __FI029 :                      43C C |  __FI039 :                      4EF C |
+*__OD007 :                      16B C | *__OD014 :                      213 C |
+*__OD021 :                      27B C | *__OD022 :                      2D1 C |
+ __OD024 :                      38F C |  __OD025 :                      39E C |
+*__OD027 :                      3C3 C | *__OD033 :                      45A C |
+*__OD034 :                      467 C | *__OD048 :                      5E0 C |
+*__OD051 :                      5EF C |  __WH000 :                       C3 C |
+ __WH006 :                      149 C |  __WH008 :                      175 C |
+
+    168 symbols
+     34 unused symbols
+
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 47 - 2024年06月19日 11時21分03秒
+
+
+  Defined Macros:
+  ---------------
+
+ADD16                                 | CALL                                 
+JS                                    | JSR                                  
+LDPTR                                 | LEA                                  
+MOVEW                                 | POP                                  
+POPA                                  | POP_EA                               
+PUSH                                  | PUSHA                                
+PUSH_EA                               | RET                                  
+STPTR                                 | SUB16                                
+
+     16 macros
+
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 48 - 2024年06月19日 11時21分03秒
+
+
+  Defined Functions:
+  ------------------
+
+H                                     | L                                    
+
+ AS V1.42 Beta [Bld 269] - Source File moni2.asm - Page 49 - 2024年06月19日 11時21分03秒
+
+
+  Code Pages:
+  ----------
+
+STANDARD (0 changed characters)
+
+1 code page
+
+0.01 seconds assembly time
+
+   1955 lines source file
+   2553 lines incl. macro expansions
+      2 passes
+      0 errors
+     24 warnings

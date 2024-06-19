@@ -177,6 +177,11 @@ param_print()
 	a^=0xff;   // ビット反転させる
 	op1mask=a;
 
+	a=op1;a&=0xf0;
+	if(a==0x30) {  // XPPC
+		param_xppcop();
+		return;
+	}
 	if(opsize==2) {
 		param_ldop();
 		return;
@@ -226,10 +231,16 @@ param_ldop()
 		goto param_jmpop;	
 	}
 
-	a=op2;prhex2();
-
 	a=op1;a&=0xc0;
 	if(a==0xc0) { 		// LD,ST,AND,...
+		a=op1;a&=7;e=a; // PC,P1,P2,P3,Imm,@P1,@P2,@P3
+		if(e==4) {a='#';putc();} // Imm
+	}
+
+	a=op2;prhex2();     // オペランドをHEX2桁でとりあえず表記.
+
+	a=op1; //a&=0xc0;
+	if(a>=0xa0) { 		// LD,ST,AND,...
 		a=op1;a&=7;e=a; // PC,P1,P2,P3,Imm,@P1,@P2,@P3
 		if(e==4) {return;} // Imm
 		if(e==0) {goto param_pcrel;}
@@ -237,8 +248,15 @@ param_ldop()
 		if(a!=0) {a='@';putc();}
 		a=e;a&=3;a+='0';e=a;goto param_ptrel;
 	}
-
 }
+
+// XPPC P1～P3
+param_xppcop()
+{
+	a='P';putc();
+	a=op1;a&=3;a+='0';putc();
+}
+
 
 // オペコード名を検索して表示.
 op_find()
