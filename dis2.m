@@ -32,7 +32,7 @@ disasm()
 //  アドレスは p2
 disasm_1()
 {
-	stptr(p2,ea1)
+	stptr(p2,ea1);
 
 	// アドレス 表示.
 	a=ea2;a<>e;
@@ -74,6 +74,7 @@ _ok1:
 // HEX Print + 逆アセンブル
 disasm_11()
 {
+	stptr(p2,pcl);
 	ld 2(p2);op3=a;
 	ld 1(p2);op2=a;
 
@@ -137,6 +138,14 @@ hexdump_acnt()
 	pop(p2);
 }
 
+inc_op2_op3()
+{
+	ild(op3(p1))
+	if(a==0) {
+		ild(op2(p1))
+	}
+}
+
 op_callret()
 {
 	push(p2);
@@ -144,6 +153,7 @@ op_callret()
 	if(a==3) {
 		p2=#mn_call;
 		op_print();
+		inc_op2_op3();
 		a=op2;prhex2();
 		a=op3;prhex2();
 	}else{
@@ -158,23 +168,76 @@ mn_call:
 mn_ret:
 	db("RET ");
 
-
+//
 // 逆アセンブラの オペコード HEX Print
+//   
 param_print()
 {
-	ld 1(p2);
-	a^=0xff;
-	ea1=a;
-	if(a!=0) {
-		a=opsize;e=a;
-		if(e==1) {
-			ea2=op1;
-		}
-		if(e==2) {
-			ea2=op2;
-		}
-		a=ea1;a&=ea2;prhex2();
+	ld 1(p2);  // OPTable のMaskフィールド.
+	a^=0xff;   // ビット反転させる
+	op1mask=a;
+
+	if(opsize==2) {
+		param_ldop();
+		return;
 	}
+
+	a=op1mask;
+	if(a!=0) { // Maskフィールドが 0xff (反転させると0) 以外なら,,,
+		a=op1mask;a&=op1;prhex2();
+	}
+}
+
+// ea2:1 = pcl:pch + (sign extend)op2 + 2
+param_addpc_ea1()
+{
+	ea1=0;
+	a=op2;a&=0x80;
+	if(a!=0) ea1=0xff;
+
+	ccl;
+	a=pcl;add op2(p1);ea2=a;
+	a=pch;add ea1(p1);ea1=a;
+
+	ccl;
+	a=ea2;adi(2);ea2=a;
+	a=ea1;adi(0);ea1=a;
+}
+param_jmpop()
+{
+	param_addpc_ea1();
+	prhex4ea1();
+}
+
+param_pcrel:
+	a='C';e=a;
+param_ptrel()
+{
+	a='(';putc();
+	a='P';putc();
+	a=e  ;putc();
+	a=')';putc();
+}
+
+param_ldop()
+{
+	a=op1;a&=0xf0;
+	if(a==0x90) {  // JMP
+		goto param_jmpop;	
+	}
+
+	a=op2;prhex2();
+
+	a=op1;a&=0xc0;
+	if(a==0xc0) { 		// LD,ST,AND,...
+		a=op1;a&=7;e=a; // PC,P1,P2,P3,Imm,@P1,@P2,@P3
+		if(e==4) {return;} // Imm
+		if(e==0) {goto param_pcrel;}
+		a=e;a&=4;
+		if(a!=0) {a='@';putc();}
+		a=e;a&=3;a+='0';e=a;goto param_ptrel;
+	}
+
 }
 
 // オペコード名を検索して表示.

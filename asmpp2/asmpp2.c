@@ -942,7 +942,7 @@ int	conditional(int f)
 	};
 
 	//
-	// いきなり--
+	// いきなり '--'
 	//
 	c1=peektoken(op1);
 	if(c1==IMINUS) {
@@ -1043,7 +1043,7 @@ _cmp:
 		return(jc^revcon);
 	}
 	if(!is_areg(op1) ) {
-		LdaImm("lda","ldi",op1);
+		LdaImm("ld","ldi",op1);
 	}
 	noop("scl");   // CY=1
 	LdaImm("cad","cai",op3);

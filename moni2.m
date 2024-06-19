@@ -64,8 +64,11 @@ ea2  = 0x24
 op1  = 0x25
 op2  = 0x26
 op3  = 0x27
+op1mask = 0x28
 ; オペサイズ.
-opsize = 0x28
+opsize = 0x29
+pcl    = 0x2a
+pch    = 0x2b
 
 inbuf = 0xfe00
 
@@ -592,6 +595,7 @@ prhex4()
 	a<>e;
 	ea1=a;
 
+prhex4ea1:
 	a=ea1;
 	prhex2();
 	a=ea2;
