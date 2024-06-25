@@ -15,7 +15,9 @@
 
 #define OP_TEST 0
 
-void eadump(int ea);
+int   ea_dump = 1;     // 実効アドレスの表示On : 1
+void  eadump(int ea);  // 実効アドレスをトレースログに追加する.
+
 extern int opcode2;
 extern char  opt_q;
 
@@ -211,7 +213,9 @@ int	opadrs(int code)
 
 	// 操作対象メモリーをPrint (ST系はこのPrintをさらに上書きするので注意)
 	if(mode != a_IMM) {
-		eadump(ea);
+		if(ea_dump) {
+			eadump(ea);
+		}
 	}
 
 	return ea;
@@ -299,7 +303,9 @@ int f_ST (int code,OPCODE *tab)
 		printf("** WRITE VIOLATIONS ** %x: ST 0x%x\n",reg.pc,ea);
 		exit(1);
 	}
-	eadump(ea);
+	if(ea_dump) {
+		eadump(ea);
+	}
 	return 0;
 }
 
@@ -399,7 +405,9 @@ int f_ILD (int code,OPCODE *tab)
 		printf("** WRITE VIOLATIONS ** ILD 0x%x\n",ea);
 		exit(1);
 	}
-	eadump(ea);
+	if(ea_dump) {
+		eadump(ea);
+	}
 	return 0;
 }
 int f_DLD (int code,OPCODE *tab)
@@ -415,7 +423,9 @@ int f_DLD (int code,OPCODE *tab)
 		printf("** WRITE VIOLATIONS ** DLD 0x%x\n",ea);
 		exit(1);
 	}
-	eadump(ea);
+	if(ea_dump) {
+		eadump(ea);
+	}
 	return 0;
 }
 

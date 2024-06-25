@@ -262,6 +262,7 @@ int		isan(int c);
 int	isreg(char *s);
 int	is_areg(char *s);
 int	is_ereg(char *s);
+int	is_zero(char *s);
 int	is_ptr(char *s);
 void LdaImm(char *op,char *opi,char *src);
 void LeaImm(char *op,char *opi,char *dst,char *src);
@@ -911,6 +912,11 @@ int	is_ereg(char *s)
 	if(str_cmpi(s,"e")==0) return 1;
 	return 0;
 }
+int	is_zero(char *s)
+{
+	if(str_cmpi(s,"0")==0) return 1;
+	return 0;
+}
 int	is_ptr(char *s)
 {
 	if(str_cmpi(s,"p1")==0) return 1;
@@ -1037,16 +1043,20 @@ _cmp:
 	//
 	if( is_ereg(op1) ) {
 		noop("lde"); // A=E
-		noop("scl");   // CY=1
-		LdaImm("cad","cai",op3);
+		if(!is_zero(op3)) {
+			noop("scl");   // CY=1
+			LdaImm("cad","cai",op3);
+		}
 		//	printf("_sub jc=%d revcon=%d\n",jc,revcon);
 		return(jc^revcon);
 	}
 	if(!is_areg(op1) ) {
 		LdaImm("ld","ldi",op1);
 	}
-	noop("scl");   // CY=1
-	LdaImm("cad","cai",op3);
+	if(!is_zero(op3)) {
+		noop("scl");   // CY=1
+		LdaImm("cad","cai",op3);
+	}
 //	printf("_sub jc=%d revcon=%d\n",jc,revcon);
 	return(jc^revcon);
 

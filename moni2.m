@@ -244,8 +244,7 @@ MOVEW MACRO DST,SRC
 // スタート
 	 nop;
 	 p1=#0xff80;
-	 a=0xfe;
-	 sp=a;
+	 sp=0xfe;
 	jsr(main);
 
 //  文字列サンプル
@@ -264,11 +263,10 @@ help_msg:
 	db(0x0a);
 	
 msg1:
-	db(" * SC/MP-III Monitor *");
+	db(" * SC/MP-II Monitor *");
 	db(0x0d);
 	db(0x0a);
 	db(0);
-
 
 syscall_ret0:
 	a=sys_e;a<>e;
@@ -294,10 +292,8 @@ syscall:
 	//HIGH,LOWを取得
 	a=*p3++;
 	a=*p3++;sys_hi=a;
-	a=*p3  ;sys_lo=a;
-
-	a=sys_hi;
 	if(a==0) goto sys_ret;
+	a=*p3  ;sys_lo=a;
 
     //P3をPUSH
 #asm
@@ -331,11 +327,23 @@ sys_ret:
 	goto syscall_ret0;
 	
 
+
+#include "mnem2.m"
+
+//  Fence:::
+//  ================================================
+//  ここのアドレスが 0x100 以降に配置される必要がある
+//  CALL と RET を上位アドレスが 00 かどうかで判別するため.
+//
+
 // メイン
 main()
 {
 	p3=#syscall_ret1;
 	p2=#msg1;puts();	
+
+//	benchmark();
+
 	while(1) {	
 		a='>';putc();
 		p2=#inbuf;gets();
@@ -343,14 +351,18 @@ main()
 		// ECHO BACK.
 		p2=#inbuf;puts();
 
-		//		
-		p2=#inbuf; //cmd();
+		// CMD EXEC.
+		p2=#inbuf;cmd();
+	}
+	exit();
+}
+
 // P2 ポインタの１行バッファをcmd解釈.
 // ワーク：
 //    p4 = readhex()の戻り値.
 //    p5 = 注目メモリーアドレスを覚えておく.
-//cmd()
-//{
+cmd()
+{
 	a=*p2++;lc();e=a;
 	if(e=='q') {
 		exit();
@@ -372,17 +384,8 @@ main()
 		p2=#help_msg;puts();
 	}
 
-//}
-
-	}
-	exit();
 }
 
-//  Fence:::
-//  ================================================
-//  ここのアドレスが 0x100 以降に配置される必要がある
-//  CALL と RET を上位アドレスが 00 かどうかで判別するため.
-//
 getc()
 {
      db(0x21);
@@ -396,7 +399,29 @@ exit()
      db(0);
 }
 
+benchmark()
+{
+	cnt1=0;
+	do {
+		cnt2=0;
+		do {
+			bench_subr();
+		}while(--cnt2);
+	}while(--cnt1);
+	p2=#msg1;puts();	
+	exit();
+}
 
+bench_subr()
+{
+	p4=0;
+	do {
+		bench_subr2();
+	}while(--p4);
+}
+bench_subr2()
+{
+}
 // ==========================================
 // 入力関数
 
@@ -672,8 +697,5 @@ puts()
 }
 
 #include "dis2.m"
-
-#include "mnem2.m"
-
 
 //

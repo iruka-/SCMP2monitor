@@ -187,8 +187,7 @@ param_print()
 		return;
 	}
 
-	a=op1mask;
-	if(a!=0) { // Maskフィールドが 0xff (反転させると0) 以外なら,,,
+	if(op1mask!=0) { // Maskフィールドが 0xff (反転させると0) 以外なら,,,
 		a=op1mask;a&=op1;prhex2();
 	}
 }
@@ -239,8 +238,7 @@ param_ldop()
 
 	a=op2;prhex2();     // オペランドをHEX2桁でとりあえず表記.
 
-	a=op1; //a&=0xc0;
-	if(a>=0xa0) { 		// LD,ST,AND,...
+	if(op1>=0xa0) { 		// LD,ST,AND,...
 		a=op1;a&=7;e=a; // PC,P1,P2,P3,Imm,@P1,@P2,@P3
 		if(e==4) {return;} // Imm
 		if(e==0) {goto param_pcrel;}

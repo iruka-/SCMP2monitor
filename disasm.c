@@ -9,7 +9,6 @@
 //	後続する16bit即値が存在する命令なら 1 を返す.
 int	is_imm16(int code);
 
-int   ea_dump = 1;
 char  memreport_buf[256];
 char *memreport(void)
 {
@@ -18,9 +17,7 @@ char *memreport(void)
 
 void eadump(int ea)
 {
-	if(ea_dump) {
-		sprintf(memreport_buf,"adr = %04x %02x",ea,memory[ea]);
-	}
+	sprintf(memreport_buf,"adr = %04x %02x",ea,memory[ea]);
 }
 
 

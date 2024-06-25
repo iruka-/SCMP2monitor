@@ -11,13 +11,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
-//#include <termios.h>
-//#include <sys/select.h>
-
 
 #include "opcode.h"
-//#include "gr.h"
-//#include "led.h"
 
 #define USE_GUI 0
 
@@ -123,9 +118,60 @@ FILE *ifp;
 void memdump(int adr,int len);
 void VRAM_output(int adrs,int data);
 int  disasm(char *buf,int code,OPCODE *tab);
+int64_t  get_cputime();
 
-//int	led_trace=0;
 
+struct   timespec pastTime;
+void     print_vcount();
+int64_t  icount   = 0;  // Instruction count
+int64_t  clocksum = 0;  // Instruction clocks
+
+//#define  MAX_ICOUNT 1000
+
+int64_t get_cputime() {
+	struct timespec currentTime;
+	int64_t diffn;
+	int64_t diffs;
+	int64_t diffu;
+	clock_gettime(CLOCK_REALTIME, &currentTime);
+	
+//	printf("Current Time: %lu Sec + %lu nanoSec.\n",
+//			              (long)currentTime.tv_sec, currentTime.tv_nsec);
+
+	diffn = currentTime.tv_nsec - pastTime.tv_nsec;
+	diffs = currentTime.tv_sec  - pastTime.tv_sec;
+	
+	diffu  = diffn / 1000;
+	diffu += diffs * 1000 * 1000;
+	
+	pastTime = currentTime;
+	return diffu;
+}
+
+#ifdef _MSDOS_
+
+void print_vcount(int64_t usec)
+{
+	fprintf(stderr,	"\n");
+	fprintf(stderr,	"icount = %I64d\n",icount);
+//	fprintf(stderr,	"clocks = %I64d\n",clocksum);
+	clocksum = icount * 18;
+	fprintf(stderr,	"  usec = %I64d\n",usec  );
+	fprintf(stderr,	"  MIPS = %I64d\n",icount   / usec);
+	fprintf(stderr,	"CPU MHz= %I64d\n",clocksum / usec);
+}
+#else
+void print_vcount(int64_t usec)
+{
+	fprintf(stderr,	"\n");
+	fprintf(stderr,	"icount = %ld\n",icount);
+//	fprintf(stderr,	"clocks = %ld\n",clocksum);
+	clocksum = icount * 18;
+	fprintf(stderr,	"  usec = %ld\n",usec  );
+	fprintf(stderr,	"  MIPS = %ld\n",icount   / usec);
+	fprintf(stderr,	"CPU MHz= %ld\n",clocksum / usec);
+}
+#endif
 
 /** *********************************************************************************
  *	命令コード(code) が、OPCODE表の１要素(*s)  にマッチするか判定.
@@ -175,7 +221,7 @@ void dump_table()
 //		printf("%s %x %x\n",s->mnemonic,s->pattern,s->bitmask);
 		printf("	db(0x%02x);\n",s->pattern);
 		printf("	 db(0x%02x);\n",0xff ^ s->bitmask);
-		printf("	 db(\"%-04s\");\n",s->mnemonic);
+		printf("	 db(\"%-4s\");\n",s->mnemonic);
 		s++;
 	}
 	exit(0);
@@ -201,7 +247,7 @@ extern char  memreport_buf[];
  *  SC/MP-IIの場合のみ、reg.pc はフェッチ直前にインクリメントする.
  *  すなわち、最後に実行した命令のオペランドバイトを指したままである.
  */
-int	execute_pc()
+inline int	execute_pc()
 {
 	int rc=0;
 	char buf[256];
@@ -289,10 +335,11 @@ int main(int argc,char **argv)
 
 	Getopt(argc,argv,"");
 	if(IsOpt('q')) {
-		opt_q=1;	// Quiet RUN
+		opt_q   = 1;	// Quiet RUN
+		ea_dump = 0;
 	}
 	if(IsOpt('t')) {
-		opt_t=1;	// Trace Log
+		opt_t   = 1;	// Trace Log
 	}
 	
 	init_table();
@@ -313,12 +360,28 @@ int main(int argc,char **argv)
 
 	
 //	reg.pc = 0xd000;
+	get_cputime();
+
 	while(1) {
 		rc = execute_pc();
 		if(rc) break;
-//		maxstep--;if(maxstep==0) break;
+		icount++;
+#if 0
+		// for debug.
+		if ( cpu->pc == 0x00d5 ) { dumpreg(cpu);}
+		if ( cpu->pc == 0x03c0 ) { dumpreg(cpu);}
+		if(( cpu->pc >= 0x0090 ) &&( cpu->pc <= 0x009f ) ){ dumpreg(cpu);}
+		if ( cpu->pc == 0x0046 ) { dumpreg(cpu); exit(1);}
+#endif		
+
+#ifdef  MAX_ICOUNT
+		if(icount >= MAX_ICOUNT) break;
+#endif
 	}
 //	gr_close();
+
+	int64_t t = get_cputime();
+	print_vcount(t);
 	return 0;
 }
 
